@@ -2,9 +2,13 @@
 {-# LANGUAGE TypeOperators #-}
 
 -- Back-end: Servant
+--canal haskellfp
 module Main where
 
-type API =  "hello" :> GET '[JSON] String
+import Data.Proxy
+import Network.Wai.Handler.Warp
+import Servant
+type API =  "hello" :> Get '[JSON] String
 
 helloFunc :: Server API
 helloFunc = pure "Hello, world!"
