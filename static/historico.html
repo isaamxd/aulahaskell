@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Histórico de campanhas · Guerra Fria 1962</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600&family=Special+Elite&display=swap">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topo">
+    <h1>Guerra Fria 1962</h1>
+    <p class="subtitulo">Histórico de campanhas</p>
+    <nav class="menu">
+      <a href="/">Jogo</a>
+      <a href="/historico.html" class="ativo">Histórico</a>
+    </nav>
+  </header>
+
+  <main class="pagina-historico">
+    <div class="layout">
+      <div class="caixa">
+        <h2>Ranking</h2>
+        <!-- A tabela é montada pelo JavaScript abaixo, com os dados da API -->
+        <div id="lista-partidas">Carregando...</div>
+      </div>
+      <aside class="lateral">
+        <div class="caixa" id="detalhes">
+          <h2>Detalhes</h2>
+          <p class="dica">Clique em "Ver" numa partida.</p>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    // Front-end em JavaScript puro, consumindo a API feita em Haskell + Servant.
+    const API = "/api/partidas";
+
+    // GET /api/partidas -> monta a tabela
+    function listarPartidas() {
+      const div = document.querySelector("#lista-partidas");
+      fetch(API)
+        .then(response => response.json())
+        .then(data => {
+          const partidas = data.partidas;
+          div.innerHTML = "";
+
+          if (partidas.length === 0) {
+            div.textContent = "Nenhuma campanha salva ainda. Jogue e clique em \"Salvar\".";
+            return;
+          }
+
+          const table = document.createElement("table");
+          table.className = "tabela";
+
+          const thead = document.createElement("thead");
+          const headerRow = document.createElement("tr");
+          ["#", "Comandante", "Lado", "Turnos", "Países", "Situação", ""].forEach(titulo => {
+            const th = document.createElement("th");
+            th.textContent = titulo;
+            headerRow.appendChild(th);
+          });
+          thead.appendChild(headerRow);
+          table.appendChild(thead);
+
+          const tbody = document.createElement("tbody");
+          partidas.forEach((partida, posicao) => {
+            const row = document.createElement("tr");
+
+            const tdPosicao = document.createElement("td");
+            tdPosicao.textContent = (posicao + 1) + "º";
+            row.appendChild(tdPosicao);
+
+            [partida.comandante, partida.nacao, partida.turnos, partida.paises, partida.situacao]
+              .forEach(valor => {
+                const td = document.createElement("td");
+                td.textContent = valor;
+                row.appendChild(td);
+              });
+
+            const tdAcoes = document.createElement("td");
+            tdAcoes.className = "acoes";
+            tdAcoes.appendChild(botao("Ver", () => verPartida(partida.idPartida)));
+            tdAcoes.appendChild(botao("Renomear", () => renomearPartida(partida.idPartida)));
+            tdAcoes.appendChild(botao("Apagar", () => apagarPartida(partida.idPartida)));
+            row.appendChild(tdAcoes);
+
+            tbody.appendChild(row);
+          });
+          table.appendChild(tbody);
+          div.appendChild(table);
+        })
+        .catch(() => {
+          div.textContent = "Erro ao carregar o histórico. O servidor está rodando?";
+        });
+    }
+
+    // GET /api/partidas/:id -> mostra os detalhes de uma partida
+    function verPartida(id) {
+      const caixa = document.querySelector("#detalhes");
+      fetch(API + "/" + id)
+        .then(response => {
+          if (response.status === 404) throw new Error("não encontrada");
+          return response.json();
+        })
+        .then(partida => {
+          caixa.innerHTML = "<h2>Partida #" + partida.idPartida + "</h2>";
+          [["Comandante", partida.comandante], ["Lado", partida.nacao],
+           ["Trimestres jogados", partida.turnos], ["Países controlados", partida.paises],
+           ["Situação", partida.situacao]].forEach(([rotulo, valor]) => {
+            const p = document.createElement("p");
+            p.textContent = rotulo + ": " + valor;
+            caixa.appendChild(p);
+          });
+        })
+        .catch(() => {
+          caixa.innerHTML = "<h2>Detalhes</h2><p class='dica'>Partida não encontrada (404).</p>";
+        });
+    }
+
+    // PATCH /api/partidas/:id/nome -> muda só o nome do comandante
+    function renomearPartida(id) {
+      const novoNome = prompt("Novo nome do comandante:");
+      if (!novoNome) return;
+      fetch(API + "/" + id + "/nome", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ novoNome: novoNome })
+      }).then(response => {
+        if (response.ok) listarPartidas();
+        else alert("Partida não encontrada.");
+      });
+    }
+
+    // DELETE /api/partidas/:id -> apaga do histórico
+    function apagarPartida(id) {
+      if (!confirm("Apagar esta campanha do histórico?")) return;
+      fetch(API + "/" + id, { method: "DELETE" })
+        .then(response => {
+          if (response.ok) listarPartidas();
+          else alert("Partida não encontrada.");
+        });
+    }
+
+    function botao(texto, aoClicar) {
+      const b = document.createElement("button");
+      b.className = "btn btn-pequeno";
+      b.textContent = texto;
+      b.addEventListener("click", aoClicar);
+      return b;
+    }
+
+    listarPartidas();
+  </script>
+</body>
+</html>
