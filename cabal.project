@@ -1,2 +1,5 @@
 packages: .
+
+-- O Codespace usa Debian 11 (PostgreSQL 13). A versao 0.11 do
+-- postgresql-libpq exige PostgreSQL 14+, entao usamos a anterior.
 constraints: postgresql-libpq < 0.11

@@ -17,7 +17,6 @@ common extensoes
                         FlexibleInstances
                         FlexibleContexts
                         MultiParamTypeClasses
-                        MultiParamTypeClasses
                         DeriveGeneric
 
 executable haskellaula
@@ -30,7 +29,9 @@ executable haskellaula
                       Game.Types
                       Game.Geografia
                       Game.Map
+                      Game.Crises
                       Game.Rules
+                      Web.Cenas
                       Web.Views
                       Web.Server
     build-depends:    base, servant, servant-server, warp,
@@ -49,5 +50,6 @@ test-suite testes
     other-modules:    Game.Types
                       Game.Geografia
                       Game.Map
+                      Game.Crises
                       Game.Rules
     build-depends:    base, containers, text, hspec, QuickCheck

@@ -21,6 +21,10 @@ module Game.Rules
   , jogarIA
   , encerrarTurno
   , iniciarPartida
+  , crisesDisponiveis
+  , resolverCrise
+  , fecharJornal
+  , tensaoDaOpcao
   , dataDoTurno
   , mensagemFim
   ) where
@@ -31,6 +35,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Game.Crises
 import Game.Map (initialState, turnoFinal)
 import Game.Types
 
@@ -108,6 +113,10 @@ tensaoDaAcao (Golpe c) st =
 tensaoDaAcao (GuerraProcuracao _) _ = 2
 tensaoDaAcao _ _                    = 0
 
+-- | Quanto uma resposta de crise mexe na tensão.
+tensaoDaOpcao :: Opcao -> Int
+tensaoDaOpcao op = sum [ n | Tensao n <- opcaoEfeitos op ]
+
 -- | Data de um turno: cada turno é um trimestre a partir de janeiro de 1962.
 dataDoTurno :: Int -> Text
 dataDoTurno t = mes <> " de " <> T.pack (show ano)
@@ -119,12 +128,16 @@ dataDoTurno t = mes <> " de " <> T.pack (show ano)
 -- ---------------------------------------------------------------------------
 -- Aleatoriedade pura (gerador congruencial linear)
 
--- | Rola um dado de 6 faces e devolve o estado com a semente avançada.
-rolarDado :: GameState -> (Int, GameState)
-rolarDado st = (dado, st { gsSemente = semente' })
+-- | Sorteia um número de 0 a n-1 e devolve o estado com a semente avançada.
+sortear :: Int -> GameState -> (Int, GameState)
+sortear n st = (resultado, st { gsSemente = semente' })
   where
-    semente' = (gsSemente st * 1103515245 + 12345) `mod` 2147483648
-    dado     = (semente' `div` 65536) `mod` 6 + 1
+    semente'  = (gsSemente st * 1103515245 + 12345) `mod` 2147483648
+    resultado = (semente' `div` 65536) `mod` max 1 n
+
+-- | Rola um dado de 6 faces.
+rolarDado :: GameState -> (Int, GameState)
+rolarDado st = let (n, st') = sortear 6 st in (n + 1, st')
 
 -- ---------------------------------------------------------------------------
 -- Ações
@@ -132,7 +145,7 @@ rolarDado st = (dado, st { gsSemente = semente' })
 -- | Começa uma partida com o lado escolhido.
 iniciarPartida :: Lado -> Int -> Text -> GameState
 iniciarPartida lado semente nome =
-  registrar ("Você assume o comando: " <> ladoNome lado <> ".") $
+  registrar ("Você assume o comando em " <> ladoCapital lado <> ".") $
   registrar "O mundo está dividido entre Washington e Berlim." $
     initialState
       { gsJogador    = lado
@@ -142,16 +155,19 @@ iniciarPartida lado semente nome =
       }
 
 -- | Aplica uma ação de um dos lados. Falha se não houver orçamento,
---   se o alvo for inválido ou se a partida já tiver terminado.
+--   se o alvo for inválido, se houver uma crise esperando decisão
+--   ou se a partida já tiver terminado.
 aplicarAcao :: Lado -> Acao -> GameState -> Either Text GameState
 aplicarAcao lado acao st = do
   when (isJust (gsFim st)) $
     Left "A partida já terminou."
+  when (isJust (gsCrise st)) $
+    Left "Decida a crise do jornal antes de agir."
   let preco = custo acao st
   when (orcamento lado st < preco) $
     Left "Orçamento insuficiente para essa ação."
   st' <- executar lado acao (gastar lado preco st)
-  pure (verificarTensao lado st')
+  pure (comMudancas st (verificarTensao lado st'))
 
 executar :: Lado -> Acao -> GameState -> Either Text GameState
 executar lado (Influenciar c) st = do
@@ -159,8 +175,8 @@ executar lado (Influenciar c) st = do
   when (alinhamentoPara lado p >= 100) $
     Left "Esse país já está totalmente do seu lado."
   let p' = mover lado 15 p
-  pure (registrar (ladoNome lado <> " amplia sua influência em " <> paisNome p <> ".")
-                  (atualizarPais p' st))
+  pure $ comSom "influencia" $
+    registrar (ladoCapital lado <> " amplia sua influência " <> noPais p <> ".") (atualizarPais p' st)
 
 executar lado (Golpe c) st = do
   p <- alvo c st
@@ -170,9 +186,12 @@ executar lado (Golpe c) st = do
       sucesso     = dado > paisEstabilidade p
       p'          = if sucesso then mover lado 40 p else mover (adversario lado) 10 p
       msg
-        | sucesso   = "Golpe apoiado por " <> ladoNome lado <> " derruba o governo de " <> paisNome p <> "!"
-        | otherwise = "Golpe apoiado por " <> ladoNome lado <> " fracassa em " <> paisNome p <> "."
-  pure (registrar msg (aumentarTensao (tensaoDaAcao (Golpe c) st) (atualizarPais p' st1)))
+        | sucesso   = "🎲 " <> tshow dado <> " · Golpe apoiado por " <> ladoCapital lado
+                        <> " derruba o governo " <> noPais p <> "!"
+        | otherwise = "🎲 " <> tshow dado <> " · Golpe apoiado por " <> ladoCapital lado
+                        <> " fracassa " <> noPais p <> "."
+  pure $ comDado dado $ comSom (if sucesso then "sucesso" else "fracasso") $
+    registrar msg (aumentarTensao (tensaoDaAcao (Golpe c) st) (atualizarPais p' st1))
 
 executar lado (GuerraProcuracao c) st = do
   p <- alvo c st
@@ -184,21 +203,33 @@ executar lado (GuerraProcuracao c) st = do
         | sucesso   = p { paisAlinhamento = paraLado lado 60 }
         | otherwise = mover (adversario lado) 15 p
       msg
-        | sucesso   = "Guerra civil em " <> paisNome p <> ": vencem os aliados de " <> ladoNome lado <> "!"
-        | otherwise = "Guerra civil em " <> paisNome p <> ": os aliados de " <> ladoNome lado <> " são derrotados."
-  pure (registrar msg (aumentarTensao 2 (atualizarPais p' st1)))
+        | sucesso   = "🎲 " <> tshow dado <> " · Guerra civil " <> noPais p
+                        <> ": vencem os aliados de " <> ladoCapital lado <> "!"
+        | otherwise = "🎲 " <> tshow dado <> " · Guerra civil " <> noPais p
+                        <> ": os aliados de " <> ladoCapital lado <> " são derrotados."
+  pure $ comDado dado $ comSom (if sucesso then "sucesso" else "fracasso") $
+    registrar msg (aumentarTensao 2 (atualizarPais p' st1))
 
 executar lado CorridaEspacial st = do
   let nivel = nivelEspacial lado st
   when (nivel >= 4) $
     Left "Sua corrida espacial já está completa."
-  let marcos = [ "lança o primeiro satélite artificial"
-               , "coloca o primeiro homem em órbita"
-               , "monta uma estação orbital"
-               , "pousa uma tripulação na Lua"
-               ]
-  pure (registrar (ladoNome lado <> " " <> (marcos !! nivel) <> "!")
-                  st { gsEspacial = Map.insert lado (nivel + 1) (gsEspacial st) })
+  pure $ comSom "foguete" $
+    registrar (ladoCapital lado <> " " <> marcoEspacial nivel <> "!") (avancarEspacial lado st)
+
+marcoEspacial :: Int -> Text
+marcoEspacial nivel = case nivel of
+  0 -> "lança o primeiro satélite artificial"
+  1 -> "coloca o primeiro homem em órbita"
+  2 -> "monta uma estação orbital"
+  _ -> "pousa uma tripulação na Lua"
+
+avancarEspacial :: Lado -> GameState -> GameState
+avancarEspacial lado st
+  | nivel >= 4 = st
+  | otherwise  = st { gsEspacial = Map.insert lado (nivel + 1) (gsEspacial st) }
+  where
+    nivel = nivelEspacial lado st
 
 -- | O país alvo de uma ação (não pode ser uma superpotência).
 alvo :: Char -> GameState -> Either Text Pais
@@ -207,6 +238,65 @@ alvo c st = case Map.lookup c (gsPaises st) of
   Just p
     | isJust (paisNucleo p) -> Left "Não é possível agir dentro de uma superpotência."
     | otherwise             -> Right p
+
+-- ---------------------------------------------------------------------------
+-- Crises do jornal
+
+-- | Crises que ainda podem acontecer agora.
+crisesDisponiveis :: GameState -> [Crise]
+crisesDisponiveis st =
+  [ c | c <- crises
+      , criseId c `notElem` gsCrisesVistas st
+      , all (condicaoOk st) (criseCondicoes c) ]
+
+condicaoOk :: GameState -> Condicao -> Bool
+condicaoOk st cond = case cond of
+  SoPara lado      -> gsJogador st == lado
+  APartirDoTurno t -> gsTurno st >= t
+  AteOTurno t      -> gsTurno st <= t
+  TensaoMinima n   -> gsTensao st >= n
+  NaoEhDoJogador c -> case Map.lookup c (gsPaises st) of
+    Just p  -> controlador p /= Just (gsJogador st)
+    Nothing -> False
+
+-- | Sorteia a crise do trimestre (se ainda houver alguma).
+sortearCrise :: GameState -> GameState
+sortearCrise st = case crisesDisponiveis st of
+  []    -> st
+  lista ->
+    let (i, st') = sortear (length lista) st
+    in st' { gsCrise = Just (criseId (lista !! i)) }
+
+-- | O jogador escolhe a resposta A (True) ou B (False) da crise pendente.
+resolverCrise :: Bool -> GameState -> Either Text GameState
+resolverCrise escolheuA st = do
+  crise <- maybe (Left "Não há nenhuma crise esperando decisão.") Right (gsCrise st >>= buscarCrise)
+  let jogador = gsJogador st
+      opcao   = if escolheuA then criseA crise else criseB crise
+      st1     = foldl (flip (aplicarEfeito jogador)) st (opcaoEfeitos opcao)
+      st2     = st1 { gsCrise        = Nothing
+                    , gsCrisesVistas = criseId crise : gsCrisesVistas st1
+                    , gsJornal       = False }
+  pure (comMudancas st (verificarTensao jogador (comSom "manchete" (registrar (opcaoDesfecho opcao) st2))))
+
+-- | Fecha o jornal (só quando não há crise esperando decisão).
+fecharJornal :: GameState -> Either Text GameState
+fecharJornal st
+  | isJust (gsCrise st) = Left "Decida a crise antes de fechar o jornal."
+  | otherwise           = Right st { gsJornal = False }
+
+-- | Aplica um efeito de crise, do ponto de vista do jogador.
+aplicarEfeito :: Lado -> Efeito -> GameState -> GameState
+aplicarEfeito lado efeito st = case efeito of
+  Influencia c v -> case Map.lookup c (gsPaises st) of
+    Just p | isNothing (paisNucleo p) -> atualizarPais (mover lado v p) st
+    _                                 -> st
+  Estabilidade c n -> case Map.lookup c (gsPaises st) of
+    Just p -> atualizarPais p { paisEstabilidade = max 1 (min 4 (paisEstabilidade p + n)) } st
+    _      -> st
+  Tensao n    -> st { gsTensao = max 0 (min tensaoMaxima (gsTensao st + n)) }
+  Orcamento n -> st { gsOrcamento = Map.adjust (\v -> max 0 (v + n)) lado (gsOrcamento st) }
+  Espacial    -> avancarEspacial lado st
 
 -- ---------------------------------------------------------------------------
 -- Inteligência artificial do lado oposto
@@ -256,13 +346,35 @@ escolherAcaoIA lado st
 -- Turnos e fim de jogo
 
 -- | Encerra o turno: a IA joga, todos recebem renda, a tensão baixa um
---   pouco e verificamos se alguém venceu.
+--   pouco, verificamos se alguém venceu e sorteamos a crise do jornal.
+--   Não faz nada se a partida acabou ou se há uma crise esperando decisão.
 encerrarTurno :: GameState -> GameState
 encerrarTurno st
-  | isJust (gsFim st) = st
+  | isJust (gsFim st) || isJust (gsCrise st) = st
   | otherwise =
-      let depoisIA = jogarIA st
-      in if isJust (gsFim depoisIA) then depoisIA else verificarFim (proximoTurno depoisIA)
+      let depoisIA = jogarIA st { gsSons = [] }
+          fechado
+            | isJust (gsFim depoisIA) = depoisIA
+            | otherwise               = verificarFim (proximoTurno depoisIA)
+          comCrise
+            | isJust (gsFim fechado) = fechado
+            | otherwise              = sortearCrise fechado
+          final = comCrise
+            { gsJornal = isNothing (gsFim comCrise)
+            , gsResumo = novidades st comCrise
+            -- dos sons da IA, só mantém os de fim de jogo; o jornal chega pelo telégrafo
+            , gsSons   = [ s | s <- gsSons comCrise, s `elem` ["nuclear", "fim"] ] ++ ["telegrafo"]
+            , gsDado   = Nothing }
+      in comMudancas st final
+
+-- | Os relatórios novos entre dois estados, em ordem cronológica.
+novidades :: GameState -> GameState -> [Text]
+novidades antes depois =
+  reverse (filter (not . T.isInfixOf "Novo trimestre") novos)
+  where
+    novos = case gsLog antes of
+      []         -> gsLog depois
+      (topo : _) -> takeWhile (/= topo) (gsLog depois)
 
 proximoTurno :: GameState -> GameState
 proximoTurno st = registrar "Novo trimestre: orçamentos recebidos." st'
@@ -275,9 +387,9 @@ proximoTurno st = registrar "Novo trimestre: orçamentos recebidos." st'
 
 verificarFim :: GameState -> GameState
 verificarFim st
-  | pontos jogador st >= pontosVitoria = terminar (Vitoria jogador)
-  | pontos ia st >= pontosVitoria      = terminar (Vitoria ia)
-  | gsTurno st > turnoFinal            = terminar porPontos
+  | pontos jogador st >= pontosVitoria = terminar (Vitoria jogador) st
+  | pontos ia st >= pontosVitoria      = terminar (Vitoria ia) st
+  | gsTurno st > turnoFinal            = terminar porPontos st
   | otherwise                          = st
   where
     jogador = gsJogador st
@@ -286,12 +398,18 @@ verificarFim st
       GT -> Vitoria jogador
       LT -> Vitoria ia
       EQ -> Empate
-    terminar f = registrar (mensagemFim f) st { gsFim = Just f }
+
+terminar :: Fim -> GameState -> GameState
+terminar f st = comSom som (registrar (mensagemFim f) st { gsFim = Just f, gsCenaFinal = True })
+  where
+    som = case f of
+      GuerraNuclear _ -> "nuclear"
+      _               -> "fim"
 
 mensagemFim :: Fim -> Text
-mensagemFim (Vitoria lado)       = ladoNome lado <> " vence a Guerra Fria!"
+mensagemFim (Vitoria lado)       = ladoCapital lado <> " vence a Guerra Fria!"
 mensagemFim Empate               = "A Guerra Fria termina num impasse."
-mensagemFim (GuerraNuclear lado) = "GUERRA NUCLEAR. " <> ladoNome lado <> " levou o mundo ao abismo."
+mensagemFim (GuerraNuclear lado) = "GUERRA NUCLEAR. " <> ladoCapital lado <> " levou o mundo ao abismo."
 
 -- ---------------------------------------------------------------------------
 -- Auxiliares
@@ -303,7 +421,7 @@ paraLado Reich v = negate v
 limitar :: Int -> Int
 limitar = max (-100) . min 100
 
--- | Move o alinhamento de um país em direção a um lado.
+-- | Move o alinhamento de um país em direção a um lado (v negativo = pro outro lado).
 mover :: Lado -> Int -> Pais -> Pais
 mover lado v p = p { paisAlinhamento = limitar (paisAlinhamento p + paraLado lado v) }
 
@@ -319,9 +437,27 @@ aumentarTensao n st = st { gsTensao = min tensaoMaxima (gsTensao st + n) }
 -- | Se a tensão chegou ao máximo, quem agiu por último causou a guerra nuclear.
 verificarTensao :: Lado -> GameState -> GameState
 verificarTensao lado st
-  | gsTensao st >= tensaoMaxima && isNothing (gsFim st) =
-      let f = GuerraNuclear lado in registrar (mensagemFim f) st { gsFim = Just f }
+  | gsTensao st >= tensaoMaxima && isNothing (gsFim st) = terminar (GuerraNuclear lado) st
   | otherwise = st
+
+-- | Marca quais países trocaram de dono entre dois estados (pra tela piscar).
+comMudancas :: GameState -> GameState -> GameState
+comMudancas antes depois =
+  depois { gsMudaram = mudaram
+         , gsSons    = gsSons depois ++ [ "virada" | not (null mudaram) ] }
+  where
+    mudaram =
+      [ c | (c, p) <- Map.toList (gsPaises depois)
+          , fmap controlador (Map.lookup c (gsPaises antes)) /= Just (controlador p) ]
+
+comSom :: Text -> GameState -> GameState
+comSom som st = st { gsSons = gsSons st ++ [som] }
+
+comDado :: Int -> GameState -> GameState
+comDado d st = st { gsDado = Just d }
 
 registrar :: Text -> GameState -> GameState
 registrar msg st = st { gsLog = take 60 ((dataDoTurno (gsTurno st) <> ": " <> msg) : gsLog st) }
+
+tshow :: Show a => a -> Text
+tshow = T.pack . show

@@ -64,7 +64,8 @@ req GET /api/partidas/999999;   teste "GET de ID inexistente dá 404" 404
 req PATCH /api/partidas/999999/nome '{"novoNome":"x"}'; teste "PATCH de ID inexistente dá 404" 404
 req PUT /api/partidas/999999 "$JSON"; teste "PUT de ID inexistente dá 404" 404
 req DELETE /api/partidas/999999; teste "DELETE de ID inexistente dá 404" 404
-req GET /api/partidas/abc;      teste "ID que não é número é recusado (400)" 400
+# o Servant não acha rota que aceite "abc" como Int, então responde 404
+req GET /api/partidas/abc;      teste "ID que não é número é recusado (404)" 404
 
 echo
 echo "Jogo"
@@ -72,19 +73,29 @@ req POST /novo/eua;             teste "escolher os EUA começa a partida" 200 "E
 req POST /novo/marte;           teste "lado inválido dá 404" 404
 req GET /pais/B;                teste "clicar no Brasil mostra os detalhes" 200 "Brasil"
 req GET /pais/xyz;              teste "país inválido dá 404" 404
-req POST /influenciar/B;        teste "influenciar o Brasil" 200 "amplia sua influência em Brasil"
+req POST /influenciar/B;        teste "influenciar o Brasil" 200 "amplia sua influência no Brasil"
 req POST /influenciar/D;        teste "não deixa agir dentro do Reich" 200 "Não é possível agir dentro de uma superpotência"
+req POST /golpe/p;              teste "golpe de Estado no Peru (com dado)" 200 "Golpe apoiado por Washington"
 req POST /espacial;             teste "não deixa gastar sem orçamento" 200 "Orçamento insuficiente"
 req POST /turno;                teste "encerrar o trimestre avança pra Abril de 1962" 200 "Abril de 1962"
+                                teste "  ...e chega o jornal do trimestre" 200 "Gazeta Internacional"
+if grep -qF 'data-hx-post="/crise/a"' "$CORPO"; then
+  req POST /jornal/fechar;      teste "  ...não dá pra fechar o jornal sem decidir a crise" 200 "Decida a crise"
+  req POST /crise/x;            teste "  ...opção de crise inválida dá 404" 404
+  req POST /crise/a;            teste "  ...decidir a crise fecha o jornal" 200 "Abril de 1962"
+  if grep -qF 'jornal-fundo' "$CORPO"; then teste "  ...(o jornal continuou aberto)" 999; fi
+else
+  req POST /jornal/fechar;      teste "  ...fechar o jornal" 200 "Abril de 1962"
+fi
+req POST /turno;                teste "segundo trimestre (Julho de 1962)" 200 "Julho de 1962"
+req POST /novo/eua
 req POST /espacial;             teste "corrida espacial: primeiro satélite" 200 "primeiro satélite"
-req POST /golpe/p;              teste "golpe de Estado no Peru" 200 "Golpe apoiado por Estados Unidos"
 STATUS=$(curl -s -o "$CORPO" -w '%{http_code}' -X POST -d 'nomeComandante=Robo de Teste' "$URL/salvar")
                                 teste "salvar a campanha no banco" 200 "Partida salva no histórico"
-req GET /api/partidas;          teste "  ...e ela aparece na API" 200 "Robo de Teste"
-SALVA=$(grep -o '"idPartida":[0-9]*,"comandante":"Robo de Teste"' "$CORPO" | head -1 | grep -o '[0-9]*' | head -1)
-[ -n "$SALVA" ] && curl -s -o /dev/null -X DELETE "$URL/api/partidas/$SALVA"
+SALVA=$(grep -o 'partida #[0-9]*' "$CORPO" | head -1 | grep -o '[0-9]*$')
+req GET "/api/partidas/$SALVA"; teste "  ...e ela aparece na API" 200 "Robo de Teste"
+req DELETE "/api/partidas/$SALVA"; teste "  ...e é apagada no fim do teste" 200
 req POST /reiniciar;            teste "nova partida volta pra escolha de lado" 200 "Assumir o comando"
-
 echo
 total=$((ok + falhou))
 if [ "$falhou" -eq 0 ]; then

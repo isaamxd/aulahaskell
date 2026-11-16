@@ -90,7 +90,7 @@ body {
 }
 .sigla {
   font-family: "Oswald", sans-serif;
-  font-size: 8px;
+  font-size: calc(8px * 2.2 / (var(--z, 1) + 1.2));  /* com zoom, cresce menos que o mapa */
   letter-spacing: .5px;
   text-anchor: middle;
   fill: #f3eedc;
@@ -320,3 +320,295 @@ body {
 .fim h2 { font-size: 20px; }
 .fim-nuclear { border-left-color: #ff2a2a; background: #3a1512; }
 .fim-nuclear h2 { color: #ff6a4a; }
+
+/* ======================================================================
+   Bordas com espessura constante mesmo com zoom
+   ====================================================================== */
+.fronteira, .fronteira-fraca, .fronteira-sel, .terra-neutra { vector-effect: non-scaling-stroke; }
+.mapa-svg { touch-action: none; cursor: grab; }
+.mapa-svg.arrastando { cursor: grabbing; }
+
+/* Zoom */
+.zoom { display: flex; flex-wrap: wrap; gap: 4px; }
+.zoom-btn {
+  padding: 4px 10px;
+  font-family: "Oswald", sans-serif;
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--apagado);
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.zoom-btn:hover, .zoom-btn.ativo { color: var(--latao); border-color: var(--latao); }
+
+/* Botão de som no topo */
+.som-botao {
+  padding: 4px 10px;
+  font-size: 18px;
+  background: transparent;
+  border: 1px solid var(--borda);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* País que acabou de mudar de lado pisca */
+@keyframes piscar {
+  0%, 100% { filter: brightness(1); }
+  20%, 60% { filter: brightness(2.2) saturate(1.4); }
+  40%, 80% { filter: brightness(1); }
+}
+.pais.mudou { animation: piscar 1.6s ease-in-out 0.8s 2; }
+
+/* Ações perigosas (vão causar guerra nuclear) */
+.btn.perigo { border-color: #ff4a2a; background: #4a1a14; }
+.btn.perigo:hover { background: #ff4a2a; color: #15160f; }
+.opcao-aviso, .btn.perigo .acao-detalhe { color: #ff8a6a; }
+
+/* Medidor de tensão crítico pulsa */
+@keyframes pulsar { 50% { box-shadow: 0 0 18px rgba(255, 42, 42, .6); } }
+.tensao-critica { animation: pulsar 1.2s infinite; border-left-color: #ff2a2a; }
+
+/* Dado */
+.dado {
+  align-self: center;
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Oswald", sans-serif;
+  font-size: 30px;
+  font-weight: 600;
+  color: #15160f;
+  background: #f3eedc;
+  border-radius: 10px;
+  box-shadow: 0 4px 0 #a39e88, 0 6px 14px rgba(0, 0, 0, .5);
+}
+@keyframes rolar { 0% { transform: rotate(0) scale(1); } 50% { transform: rotate(180deg) scale(1.15); } 100% { transform: rotate(360deg) scale(1); } }
+.dado.rolando { animation: rolar 0.3s linear infinite; }
+.aviso.esperando { visibility: hidden; }
+
+/* Guerra nuclear */
+.layout.nuclear .mapa { box-shadow: inset 0 0 120px rgba(255, 60, 20, .55); border-color: #ff4a2a; }
+.layout.nuclear .mapa-svg { filter: sepia(.6) hue-rotate(-30deg) saturate(2.2) brightness(.85); }
+@keyframes tremer {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-8px, 4px); }
+  40% { transform: translate(7px, -5px); }
+  60% { transform: translate(-5px, -3px); }
+  80% { transform: translate(5px, 6px); }
+}
+/* (tremer só o mapa e o painel: tremer o #jogo inteiro tiraria a cutscene do lugar) */
+body.tremendo .coluna-mapa, body.tremendo .lateral, body.tremendo .cutscene.ativa { animation: tremer 0.12s linear 10; }
+.fim-botoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.fim-botoes .btn { flex: 1; }
+
+/* Como jogar */
+.como-jogar summary {
+  cursor: pointer;
+  font-family: "Oswald", sans-serif;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--latao);
+}
+.como-jogar ul { padding-left: 18px; line-height: 1.5; }
+.como-jogar ul ul { margin: 4px 0; }
+
+/* ======================================================================
+   Jornal do trimestre
+   ====================================================================== */
+.jornal-fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 10, 8, .78);
+  animation: aparecer .4s ease-out;
+}
+@keyframes aparecer { from { opacity: 0; } to { opacity: 1; } }
+@keyframes chegarJornal { from { transform: rotate(-8deg) scale(.6); opacity: 0; } to { transform: rotate(-1deg) scale(1); opacity: 1; } }
+.jornal {
+  width: min(680px, 100%);
+  max-height: 92vh;
+  overflow-y: auto;
+  padding: 26px 32px;
+  color: #1d1b16;
+  background: #efe7d2;
+  background-image: radial-gradient(rgba(0, 0, 0, .05) 1px, transparent 1px);
+  background-size: 4px 4px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .7);
+  transform: rotate(-1deg);
+  animation: chegarJornal .6s cubic-bezier(.2, 1.4, .4, 1);
+}
+.jornal-cabecalho { text-align: center; border-bottom: 3px double #1d1b16; margin-bottom: 14px; }
+.jornal-nome {
+  margin: 0;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 1px;
+}
+.jornal-data { margin: 2px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 2px; }
+.manchete {
+  margin: 8px 0;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+.jornal-texto { font-size: 16px; line-height: 1.5; }
+.jornal-pergunta { margin-top: 14px; font-weight: bold; }
+.jornal-opcoes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 600px) { .jornal-opcoes { grid-template-columns: 1fr; } }
+.btn-opcao {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 12px;
+  text-align: left;
+  color: #efe7d2;
+  background: #1d1b16;
+  border-color: #1d1b16;
+}
+.btn-opcao:hover { background: #8c2f2f; color: #fff; }
+.opcao-rotulo { font-size: 15px; }
+.opcao-efeitos {
+  font-family: "Special Elite", monospace;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: .85;
+}
+.jornal-resumo { margin-top: 18px; padding-top: 10px; border-top: 1px solid #1d1b16; }
+.jornal-resumo h3 {
+  margin: 0 0 6px;
+  font-family: "Oswald", sans-serif;
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.jornal-resumo ul { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.5; }
+.jornal .btn-turno { margin-top: 16px; }
+
+/* ======================================================================
+   Cutscenes (estilo abertura de filme de guerra)
+   ====================================================================== */
+.cutscene { display: none; }
+.cutscene.ativa {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #050505;
+  cursor: pointer;
+  overflow: hidden;
+}
+/* granulado de filme antigo */
+.cutscene.ativa::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-radial-gradient(circle at 17% 32%, rgba(255, 255, 255, .025) 0 1px, transparent 1px 3px);
+  box-shadow: inset 0 0 180px rgba(0, 0, 0, .95);
+}
+.faixa { position: absolute; left: 0; right: 0; height: 9vh; background: #000; z-index: 3; }
+.faixa-topo { top: 0; }
+.faixa-baixo { bottom: 0; }
+.cena-mapa {
+  position: absolute;
+  inset: 12vh 6vw 24vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 1.2s;
+}
+.cena-mapa.visivel { opacity: .9; }
+.cena-mapa svg { width: 100%; height: 100%; }
+.cena-pais { fill: #3a3a33; transition: fill 1.4s ease; }
+.cena-mapa .terra-neutra { fill: #2a2a25; stroke: none; }
+.cena-mapa .fronteira { stroke: #050505; stroke-width: .6; }
+.cena {
+  position: absolute;
+  left: 8vw;
+  right: 8vw;
+  bottom: 11vh;
+  z-index: 4;
+  opacity: 0;
+  transition: opacity .8s;
+  pointer-events: none;
+  text-align: center;
+}
+.cena.visivel { opacity: 1; }
+.cena:not(.visivel) { transition: none; }  /* a cena anterior some na hora */
+.cena-data {
+  margin: 0 0 8px;
+  font-family: "Oswald", sans-serif;
+  font-size: clamp(16px, 2.4vw, 26px);
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  color: var(--latao);
+}
+.cena-texto {
+  margin: 0 auto;
+  max-width: 900px;
+  min-height: 3em;
+  font-family: "Special Elite", monospace;
+  font-size: clamp(16px, 2.2vw, 24px);
+  line-height: 1.5;
+  color: #f3eedc;
+  text-shadow: 0 2px 8px #000;
+}
+.cena.titulo { top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; }
+.cena.titulo .cena-texto { font-size: clamp(20px, 3vw, 34px); color: var(--apagado); }
+.cena.titulo.grande .cena-texto {
+  font-family: "Oswald", sans-serif;
+  font-size: clamp(40px, 8vw, 96px);
+  letter-spacing: 10px;
+  color: var(--latao);
+}
+.cena.alerta .cena-texto { color: #ff6a4a; }
+@keyframes clarao { 0% { background: #fff; } 100% { background: #050505; } }
+.cutscene.ativa:has(.cena.clarao.visivel) { animation: clarao 1.6s ease-out; }
+.pular {
+  position: absolute;
+  right: 24px;
+  bottom: calc(9vh + 14px);
+  z-index: 5;
+  padding: 8px 16px;
+  font-family: "Oswald", sans-serif;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--apagado);
+  background: rgba(0, 0, 0, .5);
+  border: 1px solid var(--borda);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.pular:hover { color: var(--latao); border-color: var(--latao); }
+body.em-cutscene { overflow: hidden; }
+
+/* ======================================================================
+   Telas pequenas e celular
+   ====================================================================== */
+@media (max-width: 760px) {
+  .topo { flex-wrap: wrap; gap: 6px 14px; padding: 12px 16px; }
+  .topo h1 { font-size: 22px; letter-spacing: 2px; }
+  .subtitulo { display: none; }
+  .menu { margin-left: 0; }
+  #jogo, .pagina-historico { padding: 12px; }
+  .cena-mapa { inset: 14vh 2vw 34vh; }
+  .tabela { font-size: 13px; }
+  .acoes { white-space: normal; }
+}

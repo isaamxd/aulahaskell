@@ -10,11 +10,12 @@ import Api.Partidas
 import Control.Monad.IO.Class (liftIO)
 import Data.IORef
 import Data.Maybe (isJust)
+import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Database.PostgreSQL.Simple (Connection)
 import Game.Map (initialState)
-import Game.Rules (aplicarAcao, encerrarTurno, iniciarPartida, paisesControlados)
+import Game.Rules
 import Game.Types
 import Lucid (Html, renderBS)
 import Model
@@ -46,6 +47,8 @@ type JogoAPI =
   :<|> "guerra"      :> Capture "codigo" String :> Post '[HTML] (Html ())         -- POST /guerra/B
   :<|> "espacial"    :> Post '[HTML] (Html ())                                   -- POST /espacial
   :<|> "turno"       :> Post '[HTML] (Html ())                                   -- POST /turno
+  :<|> "crise"       :> Capture "opcao" String  :> Post '[HTML] (Html ())         -- POST /crise/a
+  :<|> "jornal"      :> "fechar" :> Post '[HTML] (Html ())                       -- POST /jornal/fechar
   :<|> "reiniciar"   :> Post '[HTML] (Html ())                                   -- POST /reiniciar
   :<|> "salvar"      :> ReqBody '[FormUrlEncoded] FormSalvar :> Post '[HTML] (Html ())
 
@@ -77,21 +80,21 @@ servidorJogo conn ref =
   :<|> acaoEmPais Influenciar
   :<|> acaoEmPais Golpe
   :<|> acaoEmPais GuerraProcuracao
-  :<|> executarAcao Nothing CorridaEspacial
+  :<|> executar Nothing (aplicarAcaoDoJogador CorridaEspacial)
   :<|> turno
+  :<|> crise
+  :<|> fechar
   :<|> reiniciar
   :<|> salvar
   where
     inicio :: Handler (Html ())
-    inicio = do
-      st <- liftIO (readIORef ref)
-      pure (page st)
+    inicio = liftIO (readIORef ref) >>= responder . page
 
     verPais :: String -> Handler (Html ())
     verPais codigo = do
       c  <- codigoPais codigo
       st <- liftIO (readIORef ref)
-      pure (gameView st (Just c) Nothing)
+      responder (gameView st (Just c) Nothing)
 
     novo :: String -> Handler (Html ())
     novo ladoTxt = do
@@ -101,50 +104,71 @@ servidorJogo conn ref =
         _       -> throwError err404
       semente <- liftIO (floor <$> getPOSIXTime)
       st <- atualizar (\s -> iniciarPartida lado semente (gsComandante s))
-      pure (gameView st Nothing Nothing)
+      responder (gameView st Nothing Nothing)
 
     acaoEmPais :: (Char -> Acao) -> String -> Handler (Html ())
     acaoEmPais construtor codigo = do
       c <- codigoPais codigo
-      executarAcao (Just c) (construtor c)
-
-    executarAcao :: Maybe Char -> Acao -> Handler (Html ())
-    executarAcao sel acao = do
-      (st, notice) <- liftIO $ atomicModifyIORef' ref $ \s ->
-        case aplicarAcao (gsJogador s) acao s of
-          Left err -> (s,  (s,  Erro err))
-          Right s' -> (s', (s', Info (ultimoRelatorio s')))
-      st' <- salvarSeTerminou st
-      pure (gameView st' sel (Just notice))
+      executar (Just c) (aplicarAcaoDoJogador (construtor c))
 
     turno :: Handler (Html ())
-    turno = do
-      st  <- atualizar encerrarTurno
-      st' <- salvarSeTerminou st
-      pure (gameView st' Nothing Nothing)
+    turno = executar Nothing (Right . encerrarTurno)
+
+    crise :: String -> Handler (Html ())
+    crise opcao = case opcao of
+      "a" -> executar Nothing (resolverCrise True)
+      "b" -> executar Nothing (resolverCrise False)
+      _   -> throwError err404
+
+    fechar :: Handler (Html ())
+    fechar = executar Nothing fecharJornal
 
     reiniciar :: Handler (Html ())
     reiniciar = do
       st <- atualizar (\s -> initialState { gsComandante = gsComandante s })
-      pure (gameView st Nothing Nothing)
+      responder (gameView st Nothing Nothing)
 
     salvar :: FormSalvar -> Handler (Html ())
     salvar form = do
       let nome = T.strip (nomeComandante form)
       _  <- atualizar (\s -> s { gsComandante = if T.null nome then "Anônimo" else nome })
-      st <- liftIO (readIORef ref) >>= salvarNoBanco
+      st <- liftIO (readIORef ref) >>= salvarNoBanco False
       let msg = "Partida salva no histórico (#" <> maybe "?" (T.pack . show) (gsPartidaId st) <> ")."
-      pure (gameView st Nothing (Just (Info msg)))
+      responder (gameView st Nothing (Just (Info msg)))
+
+    -- Aplica uma regra pura ao estado e devolve a tela atualizada.
+    -- Se a regra falhar, o estado não muda e aparece o aviso de erro.
+    executar :: Maybe Char -> (GameState -> Either Text GameState) -> Handler (Html ())
+    executar sel regra = do
+      (st, notice) <- liftIO $ atomicModifyIORef' ref $ \s ->
+        case regra s of
+          Left err -> (s,  (s,  Just (Erro err)))
+          Right s' -> (s', (s', avisoDe s s'))
+      st' <- salvarSeTerminou st
+      responder (gameView st' sel notice)
+
+    -- Depois de montar a tela, limpa os efeitos de uma vez só
+    -- (países piscando, sons, dado), pra não repetirem no próximo clique.
+    responder :: Html () -> Handler (Html ())
+    responder html = do
+      _ <- atualizar (\s -> s { gsMudaram = [], gsSons = [], gsDado = Nothing, gsCenaFinal = False })
+      pure html
 
     -- Salva no banco usando os mesmos handlers da API:
     -- na primeira vez faz POST; depois faz PUT na mesma partida.
-    salvarNoBanco :: GameState -> Handler GameState
-    salvarNoBanco st = do
+    -- Com manterNome = True (salvamento automático), o nome que estiver no
+    -- banco é preservado (caso tenha sido renomeado no histórico).
+    salvarNoBanco :: Bool -> GameState -> Handler GameState
+    salvarNoBanco manterNome st = do
       let partida = partidaDoJogo st
       pid <- case gsPartidaId st of
         Nothing -> inserir partida
         Just existente -> do
-          r <- liftIO (runHandler (handlerPutPartida conn existente partida))
+          antiga <- liftIO (runHandler (handlerPartidaPorId conn existente))
+          let partida' = case antiga of
+                Right p | manterNome -> partida { comandante = comandante p }
+                _                    -> partida
+          r <- liftIO (runHandler (handlerPutPartida conn existente partida'))
           case r of
             Right _ -> pure existente
             Left _  -> inserir partida -- foi apagada no histórico: cria de novo
@@ -154,8 +178,8 @@ servidorJogo conn ref =
     -- Se o banco falhar, o jogo continua mesmo assim.
     salvarSeTerminou :: GameState -> Handler GameState
     salvarSeTerminou st
-      | isJust (gsFim st) = do
-          r <- liftIO (runHandler (salvarNoBanco st))
+      | isJust (gsFim st) && gsCenaFinal st = do
+          r <- liftIO (runHandler (salvarNoBanco True st))
           pure (either (const st) id r)
       | otherwise = pure st
 
@@ -165,15 +189,23 @@ servidorJogo conn ref =
     atualizar :: (GameState -> GameState) -> Handler GameState
     atualizar f = liftIO $ atomicModifyIORef' ref $ \s -> let s' = f s in (s', s')
 
+-- | A ação do jogador humano (o lado dele está no próprio estado).
+aplicarAcaoDoJogador :: Acao -> GameState -> Either Text GameState
+aplicarAcaoDoJogador acao s = aplicarAcao (gsJogador s) acao s
+
+-- | Aviso verde com o último relatório, quando a ação gerou um.
+avisoDe :: GameState -> GameState -> Maybe Notice
+avisoDe antes depois
+  | gsJornal depois                      = Nothing   -- o jornal já mostra tudo
+  | take 1 (gsLog depois) == take 1 (gsLog antes) = Nothing
+  | otherwise = case gsLog depois of
+      (m : _) -> Just (Info m)
+      []      -> Nothing
+
 -- | O código do país vem na URL como uma letra só.
 codigoPais :: String -> Handler Char
 codigoPais [c] = pure c
 codigoPais _   = throwError err404
-
-ultimoRelatorio :: GameState -> T.Text
-ultimoRelatorio st = case gsLog st of
-  (m : _) -> m
-  []      -> "Feito."
 
 -- | Converte o estado do jogo no registro que vai pro banco.
 partidaDoJogo :: GameState -> Partida

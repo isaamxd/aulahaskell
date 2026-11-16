@@ -26,8 +26,20 @@ com os contornos verdadeiros dos países.
 - Países controlados dão pontos (estratégicos valem 2) e aumentam a renda.
 - **Tensão nuclear:** golpes e guerras aumentam; ela cai 1 por trimestre. Se chegar
   a 5, é guerra nuclear e **quem causou perde**.
+- **Jornal do trimestre:** ao fim de cada trimestre o inimigo joga e chega um
+  jornal com o que aconteceu no mundo e uma **crise** com duas respostas
+  (25 crises, algumas exclusivas de cada lado, como os mísseis em Cuba).
 - Vence quem chegar a 36 pontos, ou quem tiver mais pontos no fim de 1966.
 - O resultado vai automaticamente para o **histórico** (banco de dados).
+
+### Apresentação
+
+- **Cutscene de abertura** (1939–1962) contando a história alternativa, com o
+  mapa se pintando a cada cena; cutscenes de vitória, derrota e guerra nuclear.
+- Sons gerados pelo navegador (Web Audio, sem arquivos de áudio), dado
+  animado nos golpes, países piscando quando mudam de lado, tela tremendo na
+  guerra nuclear.
+- Zoom no mapa (roda do mouse, arrastar, atalhos por região).
 
 ## Como rodar (GitHub Codespaces)
 
@@ -57,10 +69,14 @@ app/Api/Partidas.hs   API REST de partidas (CRUD completo)
 app/Game/Types.hs     tipos do jogo (lados, países, ações, estado)
 app/Game/Map.hs       os 42 países e regiões de 1962 e o estado inicial
 app/Game/Geografia.hs contornos do mapa (gerado a partir do Natural Earth)
-app/Game/Rules.hs     regras, dado pseudoaleatório puro e IA (funções puras)
+app/Game/Rules.hs     regras, dado pseudoaleatório puro, crises e IA (funções puras)
+app/Game/Crises.hs    as 25 crises do jornal (só dados: condições e efeitos)
+app/Web/Cenas.hs      roteiro das cutscenes
 app/Web/Views.hs      HTML do jogo (Lucid) e mapa SVG
 app/Web/Server.hs     junta tudo num servidor Servant (inclui o "hello" da aula)
 static/historico.html front-end em JavaScript puro (fetch) consumindo a API
+static/efeitos.js     sons, dado e cutscenes (lê os sinais que o Haskell coloca no HTML)
+static/mapa.js        zoom e arrastar no mapa
 migrations/           SQL de criação da tabela
 scripts/iniciar.sh    liga o banco e roda o jogo
 test/Spec.hs          testes (Hspec + QuickCheck)
@@ -129,4 +145,5 @@ curl -v -X DELETE localhost:8080/api/partidas/1
 - [x] Tensão nuclear e condições de vitória
 - [x] IA do lado oposto
 - [x] API REST com PostgreSQL e histórico de campanhas
-- [ ] Eventos históricos aleatórios (crises, eleições, revoluções)
+- [x] Crises com escolhas (jornal do trimestre)
+- [x] Cutscenes, sons e animações

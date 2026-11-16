@@ -6,6 +6,7 @@
 module Api.Partidas
   ( PartidasAPI
   , servidorPartidas
+  , handlerPartidaPorId
   , handlerPostPartida
   , handlerPutPartida
   ) where

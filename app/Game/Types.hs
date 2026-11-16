@@ -12,10 +12,12 @@ module Game.Types
   , Fim (..)
   , GameState (..)
   , ladoNome
+  , ladoCapital
   , ladoSlug
   , ladoCor
   , adversario
   , regiaoNome
+  , noPais
   ) where
 
 import Data.Map.Strict (Map)
@@ -28,6 +30,11 @@ data Lado = EUA | Reich
 ladoNome :: Lado -> Text
 ladoNome EUA   = "Estados Unidos"
 ladoNome Reich = "Reich Alemão"
+
+-- | A capital, usada como sujeito nas manchetes ("Washington amplia...").
+ladoCapital :: Lado -> Text
+ladoCapital EUA   = "Washington"
+ladoCapital Reich = "Berlim"
 
 -- | Nome usado nas URLs (/novo/eua, /novo/reich).
 ladoSlug :: Lado -> Text
@@ -64,8 +71,9 @@ regiaoNome Asia           = "Ásia"
 regiaoNome Oceania        = "Oceania"
 
 data Pais = Pais
-  { paisCodigo       :: Char        -- ^ letra que representa o país no mapa ASCII
+  { paisCodigo       :: Char        -- ^ letra que identifica o país
   , paisNome         :: Text
+  , paisPrep         :: Text        -- ^ "no", "na", "nos", "em"... (pra frase ficar certa)
   , paisSigla        :: Text        -- ^ três letras mostradas no mapa
   , paisRegiao       :: Regiao
   , paisEstabilidade :: Int         -- ^ 1 (instável) a 4 (estável): quanto maior, mais difícil virar
@@ -73,6 +81,10 @@ data Pais = Pais
   , paisNucleo       :: Maybe Lado  -- ^ território de uma superpotência (não pode ser disputado)
   , paisAlinhamento  :: Int         -- ^ -100 (totalmente pró-Reich) a +100 (totalmente pró-EUA)
   } deriving (Eq, Show)
+
+-- | "no Brasil", "na Argentina", "em Cuba"...
+noPais :: Pais -> Text
+noPais p = paisPrep p <> " " <> paisNome p
 
 -- | O que uma superpotência pode fazer num turno.
 data Acao
@@ -92,16 +104,26 @@ data Fim
 -- | O estado completo de uma partida. Cada ação do jogo é uma função
 --   pura @GameState -> GameState@ (ou @Either Text GameState@ se puder falhar).
 data GameState = GameState
-  { gsTurno      :: Int              -- ^ cada turno é um trimestre, a partir de jan/1962
-  , gsJogador    :: Lado             -- ^ o lado do jogador (o outro é a IA)
-  , gsIniciado   :: Bool             -- ^ False enquanto o jogador não escolheu um lado
-  , gsPaises     :: Map Char Pais
-  , gsOrcamento  :: Map Lado Int
-  , gsEspacial   :: Map Lado Int     -- ^ nível na corrida espacial (0 a 4)
-  , gsTensao     :: Int              -- ^ 0 (calma) a 5 (guerra nuclear)
-  , gsSemente    :: Int              -- ^ semente do gerador pseudoaleatório (puro!)
-  , gsFim        :: Maybe Fim
-  , gsLog        :: [Text]           -- ^ relatórios, do mais novo pro mais antigo
-  , gsComandante :: Text             -- ^ nome do jogador, usado no histórico
-  , gsPartidaId  :: Maybe Int        -- ^ ID no banco, se a partida já foi salva
+  { gsTurno        :: Int              -- ^ cada turno é um trimestre, a partir de jan/1962
+  , gsJogador      :: Lado             -- ^ o lado do jogador (o outro é a IA)
+  , gsIniciado     :: Bool             -- ^ False enquanto o jogador não escolheu um lado
+  , gsPaises       :: Map Char Pais
+  , gsOrcamento    :: Map Lado Int
+  , gsEspacial     :: Map Lado Int     -- ^ nível na corrida espacial (0 a 4)
+  , gsTensao       :: Int              -- ^ 0 (calma) a 5 (guerra nuclear)
+  , gsSemente      :: Int              -- ^ semente do gerador pseudoaleatório (puro!)
+  , gsFim          :: Maybe Fim
+  , gsLog          :: [Text]           -- ^ relatórios, do mais novo pro mais antigo
+  , gsComandante   :: Text             -- ^ nome do jogador, usado no histórico
+  , gsPartidaId    :: Maybe Int        -- ^ ID no banco, se a partida já foi salva
+    -- crises e jornal
+  , gsCrise        :: Maybe Int        -- ^ crise esperando a decisão do jogador
+  , gsCrisesVistas :: [Int]            -- ^ crises que já aconteceram (não repetem)
+  , gsJornal       :: Bool             -- ^ mostrar o jornal do trimestre
+  , gsResumo       :: [Text]           -- ^ o que aconteceu no último fim de trimestre
+    -- efeitos da última ação (a tela usa e depois o servidor limpa)
+  , gsMudaram      :: [Char]           -- ^ países que trocaram de dono
+  , gsSons         :: [Text]           -- ^ sons a tocar
+  , gsDado         :: Maybe Int        -- ^ último dado rolado
+  , gsCenaFinal    :: Bool             -- ^ mostrar a cutscene de fim de jogo
   } deriving (Eq, Show)
