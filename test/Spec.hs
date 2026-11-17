@@ -5,6 +5,8 @@ import Data.List (nub)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, isNothing)
 import Game.Crises
+import Game.Enigma
+import qualified Data.Text as T
 import Game.Geografia
 import Game.Map
 import Game.Rules
@@ -14,7 +16,16 @@ import Test.QuickCheck
 
 -- | Uma partida jogando com os EUA, sempre com a mesma semente.
 estadoTeste :: GameState
-estadoTeste = iniciarPartida EUA 42 "Teste"
+estadoTeste = iniciarPartida GuerraFria 42 "Teste"
+
+-- | Uma partida no modo Resistência, com orçamento de sobra.
+resistenciaTeste :: GameState
+resistenciaTeste = comDinheiro (iniciarPartida Resistencia 42 "Teste")
+
+-- | Países europeus que podem ser libertados (fora do núcleo do Reich).
+europeusLivres :: GameState -> [Char]
+europeusLivres st =
+  [ paisCodigo p | p <- Map.elems (gsPaises st), paisRegiao p == Europa, isNothing (paisNucleo p) ]
 
 -- | O mesmo estado, mas com orçamento de sobra.
 comDinheiro :: GameState -> GameState
@@ -135,9 +146,11 @@ main = hspec $ do
     it "não dá pra resolver crise quando não há nenhuma" $
       resolverCrise True estadoTeste `shouldSatisfy` isLeft
 
-    it "crises exclusivas de um lado não aparecem pro outro" $ do
-      let reich = iniciarPartida Reich 7 ""
-      all (\c -> SoPara EUA `notElem` criseCondicoes c) (crisesDisponiveis reich) `shouldBe` True
+    it "crises da Resistência não aparecem na Guerra Fria" $
+      all (\c -> SoNoModo Resistencia `notElem` criseCondicoes c) (crisesDisponiveis estadoTeste) `shouldBe` True
+
+    it "no modo Resistência só aparecem crises da Resistência" $
+      all (\c -> SoNoModo Resistencia `elem` criseCondicoes c) (crisesDisponiveis resistenciaTeste) `shouldBe` True
 
     it "fechar o jornal funciona quando não há crise" $
       fecharJornal estadoTeste { gsJornal = True } `shouldSatisfy` isRight
@@ -148,8 +161,59 @@ main = hspec $ do
 
     it "a IA nunca provoca guerra nuclear" $
       forAll (choose (0, 100000)) $ \s ->
-        let st = iterate passarTurno (iniciarPartida EUA s "") !! 10
+        let st = iterate passarTurno (iniciarPartida GuerraFria s "") !! 10
         in gsFim st /= Just (GuerraNuclear Reich)
 
     it "a partida termina depois do último trimestre" $
       isJust (gsFim (iterate passarTurno estadoTeste !! (turnoFinal + 1))) `shouldBe` True
+
+  describe "Resistência" $ do
+    it "a Resistência só atua na Europa" $
+      aplicarAcao EUA (Influenciar 'B') resistenciaTeste `shouldSatisfy` isLeft
+
+    it "o rádio clandestino funciona num país europeu ocupado" $
+      aplicarAcao EUA (Influenciar 'F') resistenciaTeste `shouldSatisfy` isRight
+
+    it "há países europeus suficientes para a meta de libertação" $
+      length (europeusLivres resistenciaTeste) >= metaLibertacao `shouldBe` True
+
+    it "abrir uma rota de fuga salva refugiados" $
+      case aplicarAcao EUA CorridaEspacial resistenciaTeste of
+        Left e   -> expectationFailure (show e)
+        Right st -> gsRefugiados st > gsRefugiados resistenciaTeste `shouldBe` True
+
+    it "libertar países europeus suficientes vence a partida" $ do
+      let livres = europeusLivres resistenciaTeste
+          libertar p = if paisCodigo p `elem` livres then p { paisAlinhamento = 100 } else p
+          quase = resistenciaTeste { gsPaises = Map.map libertar (gsPaises resistenciaTeste) }
+      gsFim (encerrarTurno quase) `shouldBe` Just (Vitoria EUA)
+
+    it "a IA nunca descobre a rede sozinha" $
+      forAll (choose (0, 100000)) $ \s ->
+        let st = iterate passarTurno (iniciarPartida Resistencia s "") !! 10
+        in gsFim st /= Just (GuerraNuclear Reich)
+
+  describe "Enigma" $ do
+    it "decifrar desfaz cifrar (para qualquer texto e chave)" $
+      property $ \(texto :: String) (a :: Int) (b :: Int) (c :: Int) ->
+        let letras = T.pack [ toEnum (65 + abs x `mod` 26) | x <- map fromEnum texto ]
+            chave  = T.pack [ toEnum (65 + abs n `mod` 26) | n <- [a, b, c] ]
+        in decifrar chave (cifrar chave letras) == letras
+
+    it "a mensagem do Reich sempre termina com BERLIM" $
+      all (\p -> "BERLIM" `T.isSuffixOf` mensagemClara p) (Map.elems (gsPaises estadoTeste)) `shouldBe` True
+
+    it "acertar a chave tira a mensagem e ajuda o jogador" $ do
+      let e  = Interceptacao { intCifrada = "", intChave = "KDR", intAlvo = 'B', intTentativas = 3 }
+          st = estadoTeste { gsEnigma = Just e }
+      case tentarChave "kdr" st of
+        Left err  -> expectationFailure (T.unpack err)
+        Right st' -> do
+          gsEnigma st' `shouldBe` Nothing
+          alinhamentoDe 'B' st' `shouldBe` fmap (+ 15) (alinhamentoDe 'B' st)
+
+    it "errar 3 vezes faz a mensagem sumir e sobe o alerta" $ do
+      let e  = Interceptacao { intCifrada = "", intChave = "KDR", intAlvo = 'B', intTentativas = 1 }
+          st = estadoTeste { gsEnigma = Just e }
+      fmap gsEnigma (tentarChave "AAA" st) `shouldBe` Right Nothing
+      fmap gsTensao (tentarChave "AAA" st) `shouldBe` Right (gsTensao st + 1)

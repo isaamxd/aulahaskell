@@ -95,6 +95,14 @@ STATUS=$(curl -s -o "$CORPO" -w '%{http_code}' -X POST -d 'nomeComandante=Robo d
 SALVA=$(grep -o 'partida #[0-9]*' "$CORPO" | head -1 | grep -o '[0-9]*$')
 req GET "/api/partidas/$SALVA"; teste "  ...e ela aparece na API" 200 "Robo de Teste"
 req DELETE "/api/partidas/$SALVA"; teste "  ...e é apagada no fim do teste" 200
+echo
+echo "Modo Resistência"
+req POST /novo/resistencia;     teste "escolher a Resistência começa a partida" 200 "Resistência Europeia"
+                                teste "  ...com o placar de países libertados" 200 "Países libertados"
+req POST /influenciar/B;        teste "não deixa agir fora da Europa" 200 "só atua na Europa"
+req POST /influenciar/F;        teste "rádio clandestino na França" 200 "rádio clandestino"
+req POST /espacial;             teste "abrir uma rota de fuga salva refugiados" 200 "refugiados chegam em segurança"
+req POST /novo/reich;           teste "o Reich não é mais jogável (404)" 404
 req POST /reiniciar;            teste "nova partida volta pra escolha de lado" 200 "Assumir o comando"
 echo
 total=$((ok + falhou))

@@ -10,6 +10,7 @@ module Web.Cenas
   ) where
 
 import Data.Text (Text)
+import qualified Data.Text as T
 import Game.Map (paisesIniciais)
 import Game.Rules (controlador, dataDoTurno)
 import Game.Types
@@ -66,22 +67,49 @@ abertura =
 -- Finais
 
 cenasFinais :: GameState -> Fim -> [Cena]
-cenasFinais st f = case f of
-  Vitoria lado ->
-    [ Cena quando ("Os aliados de " <> ladoCapital (adversario lado) <> " mudam de lado, um a um.") mapa ""
-    , Cena "" (ladoCapital lado <> " vence a Guerra Fria sem disparar um único míssil.") mapa ""
-    , Cena "" (if lado == gsJogador st then "VITÓRIA" else "DERROTA") Nothing "titulo grande"
-    ]
-  Empate ->
-    [ Cena quando "Nenhuma das potências consegue uma vantagem decisiva." mapa ""
-    , Cena "" "A Guerra Fria continua, e o mundo segue à beira do abismo." mapa ""
-    , Cena "" "IMPASSE" Nothing "titulo grande"
-    ]
-  GuerraNuclear _ ->
-    [ Cena quando "Os radares disparam dos dois lados do Atlântico." mapa "alerta"
-    , Cena "" "Em trinta minutos, a Guerra Fria acaba." Nothing "clarao"
-    , Cena "" "Não há vencedores." Nothing "titulo grande"
-    ]
+cenasFinais st f
+  | gsModo st == Resistencia = finaisResistencia st f
+  | otherwise = case f of
+        Vitoria lado ->
+          [ Cena quando ("Os aliados de " <> ladoCapital (adversario lado) <> " mudam de lado, um a um.") mapa ""
+          , Cena "" (ladoCapital lado <> " vence a Guerra Fria sem disparar um único míssil.") mapa ""
+          , Cena "" (if lado == gsJogador st then "VITÓRIA" else "DERROTA") Nothing "titulo grande"
+          ]
+        Empate ->
+          [ Cena quando "Nenhuma das potências consegue uma vantagem decisiva." mapa ""
+          , Cena "" "A Guerra Fria continua, e o mundo segue à beira do abismo." mapa ""
+          , Cena "" "IMPASSE" Nothing "titulo grande"
+          ]
+        GuerraNuclear _ ->
+          [ Cena quando "Os radares disparam dos dois lados do Atlântico." mapa "alerta"
+          , Cena "" "Em trinta minutos, a Guerra Fria acaba." Nothing "clarao"
+          , Cena "" "Não há vencedores." Nothing "titulo grande"
+          ]
   where
     quando = dataDoTurno (gsTurno st)
-    mapa   = Just [ (c, lado) | (c, p) <- Map.toList (gsPaises st), Just lado <- [controlador p] ]
+    mapa   = mapaAtual st
+
+finaisResistencia :: GameState -> Fim -> [Cena]
+finaisResistencia st f = case f of
+  Vitoria EUA ->
+    [ Cena quando "Os sinos tocam em Paris, Oslo e Roma. Os ocupantes recuam, cidade por cidade." mapa ""
+    , Cena "" refugiados mapa ""
+    , Cena "" "A EUROPA SE LEVANTA" Nothing "titulo grande"
+    ]
+  GuerraNuclear _ ->
+    [ Cena quando "Batidas na porta, no meio da noite, em dezenas de cidades ao mesmo tempo." mapa "alerta"
+    , Cena "" "A Gestapo desmantela a rede. Mas alguém, em algum lugar, ainda guarda um rádio." Nothing ""
+    , Cena "" "A REDE CAIU" Nothing "titulo grande"
+    ]
+  _ ->
+    [ Cena quando "A ocupação continua. A Europa ainda espera pela liberdade." mapa ""
+    , Cena "" refugiados mapa ""
+    , Cena "" "A LUTA CONTINUA" Nothing "titulo grande"
+    ]
+  where
+    quando     = dataDoTurno (gsTurno st)
+    mapa       = mapaAtual st
+    refugiados = "Pelas rotas de fuga da Resistência, " <> T.pack (show (gsRefugiados st)) <> " pessoas foram salvas."
+
+mapaAtual :: GameState -> Maybe [(Char, Lado)]
+mapaAtual st = Just [ (c, lado) | (c, p) <- Map.toList (gsPaises st), Just lado <- [controlador p] ]

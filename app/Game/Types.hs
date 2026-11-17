@@ -6,11 +6,13 @@
 --   enfrentar diretamente: é uma Guerra Fria.
 module Game.Types
   ( Lado (..)
+  , Modo (..)
   , Regiao (..)
   , Pais (..)
   , Acao (..)
   , Fim (..)
   , GameState (..)
+  , Interceptacao (..)
   , ladoNome
   , ladoCapital
   , ladoSlug
@@ -23,9 +25,16 @@ module Game.Types
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 
--- | As duas superpotências.
+-- | Os dois lados do conflito. No modo Resistência, o lado "EUA" é a
+--   Resistência Europeia (os aliados), e o Reich continua sendo o inimigo.
 data Lado = EUA | Reich
   deriving (Eq, Ord, Show, Enum, Bounded)
+
+-- | Os modos de jogo.
+data Modo
+  = GuerraFria   -- ^ você comanda os Estados Unidos e disputa o mundo
+  | Resistencia  -- ^ você comanda a Resistência e liberta a Europa ocupada
+  deriving (Eq, Show)
 
 ladoNome :: Lado -> Text
 ladoNome EUA   = "Estados Unidos"
@@ -105,6 +114,7 @@ data Fim
 --   pura @GameState -> GameState@ (ou @Either Text GameState@ se puder falhar).
 data GameState = GameState
   { gsTurno        :: Int              -- ^ cada turno é um trimestre, a partir de jan/1962
+  , gsModo         :: Modo
   , gsJogador      :: Lado             -- ^ o lado do jogador (o outro é a IA)
   , gsIniciado     :: Bool             -- ^ False enquanto o jogador não escolheu um lado
   , gsPaises       :: Map Char Pais
@@ -116,6 +126,7 @@ data GameState = GameState
   , gsLog          :: [Text]           -- ^ relatórios, do mais novo pro mais antigo
   , gsComandante   :: Text             -- ^ nome do jogador, usado no histórico
   , gsPartidaId    :: Maybe Int        -- ^ ID no banco, se a partida já foi salva
+  , gsRefugiados   :: Int              -- ^ pessoas salvas pelas rotas de fuga (modo Resistência)
     -- crises e jornal
   , gsCrise        :: Maybe Int        -- ^ crise esperando a decisão do jogador
   , gsCrisesVistas :: [Int]            -- ^ crises que já aconteceram (não repetem)
@@ -126,4 +137,14 @@ data GameState = GameState
   , gsSons         :: [Text]           -- ^ sons a tocar
   , gsDado         :: Maybe Int        -- ^ último dado rolado
   , gsCenaFinal    :: Bool             -- ^ mostrar a cutscene de fim de jogo
+    -- minijogo da Enigma
+  , gsEnigma       :: Maybe Interceptacao -- ^ mensagem do Reich esperando ser decifrada
+  } deriving (Eq, Show)
+
+-- | Uma mensagem cifrada do Reich interceptada pelo jogador (minijogo da Enigma).
+data Interceptacao = Interceptacao
+  { intCifrada    :: Text   -- ^ o texto cifrado que aparece na tela
+  , intChave      :: Text   -- ^ a posição certa dos 3 rotores, ex.: "KDR"
+  , intAlvo       :: Char   -- ^ o país que o Reich planejava atacar
+  , intTentativas :: Int    -- ^ tentativas que ainda restam
   } deriving (Eq, Show)

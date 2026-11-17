@@ -27,6 +27,10 @@ module Game.Rules
   , tensaoDaOpcao
   , dataDoTurno
   , mensagemFim
+  , nomeDoLado
+  , quemAge
+  , libertados
+  , metaLibertacao
   ) where
 
 import Control.Monad (when)
@@ -53,6 +57,29 @@ tensaoMaxima = 5
 -- | Quem chegar a esta pontuação vence na hora.
 pontosVitoria :: Int
 pontosVitoria = 36
+
+-- | Modo Resistência: quantos países europeus é preciso libertar.
+metaLibertacao :: Int
+metaLibertacao = 6
+
+-- ---------------------------------------------------------------------------
+-- Nomes de cada lado, conforme o modo
+
+-- | Nome de um lado nesta partida (no modo Resistência, o lado aliado é a Resistência).
+nomeDoLado :: GameState -> Lado -> Text
+nomeDoLado st lado
+  | gsModo st == Resistencia && lado == EUA = "Resistência Europeia"
+  | otherwise                               = ladoNome lado
+
+-- | Quem age, nas manchetes: "Washington", "Berlim" ou "A Resistência".
+quemAge :: GameState -> Lado -> Text
+quemAge st lado
+  | gsModo st == Resistencia && lado == EUA = "A Resistência"
+  | otherwise                               = ladoCapital lado
+
+-- | É uma ação da Resistência (e não dos EUA ou do Reich)?
+ehResistencia :: GameState -> Lado -> Bool
+ehResistencia st lado = gsModo st == Resistencia && lado == EUA
 
 -- ---------------------------------------------------------------------------
 -- Consultas
@@ -85,19 +112,31 @@ orcamento lado st = Map.findWithDefault 0 lado (gsOrcamento st)
 nivelEspacial :: Lado -> GameState -> Int
 nivelEspacial lado st = Map.findWithDefault 0 lado (gsEspacial st)
 
--- | Renda por turno: base + 1 a cada 2 países controlados + corrida espacial.
+-- | Países europeus (fora do Reich) já libertados pela Resistência.
+libertados :: GameState -> Int
+libertados st = length
+  [ p | p <- Map.elems (gsPaises st)
+      , paisRegiao p == Europa
+      , isNothing (paisNucleo p)
+      , controlador p == Just EUA ]
+
+-- | Renda por turno: base + 1 a cada 2 países controlados + corrida espacial
+--   (ou rotas de fuga, no modo Resistência).
 renda :: Lado -> GameState -> Int
-renda lado st = rendaBase lado + length (paisesControlados lado st) `div` 2 + nivelEspacial lado st
+renda lado st = rendaBase + length (paisesControlados lado st) `div` 2 + nivelEspacial lado st
   where
-    rendaBase EUA   = 7 -- economia americana intacta
-    rendaBase Reich = 5 -- império grande, mas caro de manter
-    -- (valores equilibrados simulando 600 partidas IA contra IA)
+    rendaBase = case (gsModo st, lado) of
+      (_, EUA)             -> 7 -- economia americana intacta / apoio aliado à Resistência
+      (GuerraFria, Reich)  -> 5 -- império grande, mas caro de manter
+      (Resistencia, Reich) -> 2 -- a repressão só gasta na Europa
+    -- (valores equilibrados simulando partidas em Python: Guerra Fria IA x IA
+    --  e Resistência com um jogador simples vencendo cerca de 2 em 3)
 
 custo :: Acao -> GameState -> Int
 custo (Influenciar c) st = maybe 99 (\p -> 1 + paisEstabilidade p) (Map.lookup c (gsPaises st))
 custo (Golpe _) _            = 4
 custo (GuerraProcuracao _) _ = 6
-custo CorridaEspacial _      = 8
+custo CorridaEspacial st     = if gsModo st == Resistencia then 6 else 8
 
 -- | Chance de sucesso em %, pras ações que dependem do dado.
 chanceSucesso :: Acao -> GameState -> Maybe Int
@@ -142,17 +181,25 @@ rolarDado st = let (n, st') = sortear 6 st in (n + 1, st')
 -- ---------------------------------------------------------------------------
 -- Ações
 
--- | Começa uma partida com o lado escolhido.
-iniciarPartida :: Lado -> Int -> Text -> GameState
-iniciarPartida lado semente nome =
-  registrar ("Você assume o comando em " <> ladoCapital lado <> ".") $
-  registrar "O mundo está dividido entre Washington e Berlim." $
+-- | Começa uma partida no modo escolhido. O jogador sempre fica com o lado
+--   aliado (EUA ou Resistência); o Reich é controlado pelo computador.
+iniciarPartida :: Modo -> Int -> Text -> GameState
+iniciarPartida modo semente nome =
+  registrar segunda $
+  registrar primeira $
     initialState
-      { gsJogador    = lado
+      { gsModo       = modo
+      , gsJogador    = EUA
       , gsIniciado   = True
       , gsSemente    = semente `mod` 2147483648
       , gsComandante = nome
       }
+  where
+    (primeira, segunda) = case modo of
+      GuerraFria  -> ( "O mundo está dividido entre Washington e Berlim."
+                     , "Você assume o comando em Washington." )
+      Resistencia -> ( "A Europa vive sob ocupação. Num porão de Paris, um rádio é ligado."
+                     , "Você assume o comando da Resistência Europeia." )
 
 -- | Aplica uma ação de um dos lados. Falha se não houver orçamento,
 --   se o alvo for inválido, se houver uma crise esperando decisão
@@ -175,8 +222,11 @@ executar lado (Influenciar c) st = do
   when (alinhamentoPara lado p >= 100) $
     Left "Esse país já está totalmente do seu lado."
   let p' = mover lado 15 p
-  pure $ comSom "influencia" $
-    registrar (ladoCapital lado <> " amplia sua influência " <> noPais p <> ".") (atualizarPais p' st)
+      msg
+        | ehResistencia st lado = "O rádio clandestino da Resistência é ouvido " <> noPais p <> "."
+        | gsModo st == Resistencia = "Berlim reforça a ocupação " <> noPais p <> "."
+        | otherwise = ladoCapital lado <> " amplia sua influência " <> noPais p <> "."
+  pure $ comSom "influencia" $ registrar msg (atualizarPais p' st)
 
 executar lado (Golpe c) st = do
   p <- alvo c st
@@ -184,12 +234,18 @@ executar lado (Golpe c) st = do
     Left "Esse país já está sob seu controle."
   let (dado, st1) = rolarDado st
       sucesso     = dado > paisEstabilidade p
-      p'          = if sucesso then mover lado 40 p else mover (adversario lado) 10 p
+      sabotagem   = ehResistencia st lado
+      p1          = if sucesso then mover lado 40 p else mover (adversario lado) 10 p
+      -- a sabotagem bem-sucedida também deixa a ocupação mais instável
+      p'          = if sabotagem && sucesso
+                      then p1 { paisEstabilidade = max 1 (paisEstabilidade p1 - 1) }
+                      else p1
+      inicio      = "🎲 " <> tshow dado <> " · "
       msg
-        | sucesso   = "🎲 " <> tshow dado <> " · Golpe apoiado por " <> ladoCapital lado
-                        <> " derruba o governo " <> noPais p <> "!"
-        | otherwise = "🎲 " <> tshow dado <> " · Golpe apoiado por " <> ladoCapital lado
-                        <> " fracassa " <> noPais p <> "."
+        | sabotagem && sucesso = inicio <> "Sabotagem " <> noPais p <> ": trens descarrilam e a ocupação enfraquece!"
+        | sabotagem            = inicio <> "A sabotagem " <> noPais p <> " fracassa, e agentes são presos."
+        | sucesso   = inicio <> "Golpe apoiado por " <> quemAge st lado <> " derruba o governo " <> noPais p <> "!"
+        | otherwise = inicio <> "Golpe apoiado por " <> quemAge st lado <> " fracassa " <> noPais p <> "."
   pure $ comDado dado $ comSom (if sucesso then "sucesso" else "fracasso") $
     registrar msg (aumentarTensao (tensaoDaAcao (Golpe c) st) (atualizarPais p' st1))
 
@@ -202,20 +258,38 @@ executar lado (GuerraProcuracao c) st = do
       p'
         | sucesso   = p { paisAlinhamento = paraLado lado 60 }
         | otherwise = mover (adversario lado) 15 p
+      inicio = "🎲 " <> tshow dado <> " · "
       msg
-        | sucesso   = "🎲 " <> tshow dado <> " · Guerra civil " <> noPais p
-                        <> ": vencem os aliados de " <> ladoCapital lado <> "!"
-        | otherwise = "🎲 " <> tshow dado <> " · Guerra civil " <> noPais p
-                        <> ": os aliados de " <> ladoCapital lado <> " são derrotados."
+        | ehResistencia st lado && sucesso = inicio <> "Levante " <> noPais p <> ": o povo expulsa os ocupantes!"
+        | ehResistencia st lado            = inicio <> "O levante " <> noPais p <> " é esmagado."
+        | sucesso   = inicio <> "Guerra civil " <> noPais p <> ": vencem os aliados de " <> quemAge st lado <> "!"
+        | otherwise = inicio <> "Guerra civil " <> noPais p <> ": os aliados de " <> quemAge st lado <> " são derrotados."
   pure $ comDado dado $ comSom (if sucesso then "sucesso" else "fracasso") $
     registrar msg (aumentarTensao 2 (atualizarPais p' st1))
 
-executar lado CorridaEspacial st = do
-  let nivel = nivelEspacial lado st
-  when (nivel >= 4) $
-    Left "Sua corrida espacial já está completa."
-  pure $ comSom "foguete" $
-    registrar (ladoCapital lado <> " " <> marcoEspacial nivel <> "!") (avancarEspacial lado st)
+executar lado CorridaEspacial st
+  | ehResistencia st lado = do
+      let nivel = nivelEspacial lado st
+          salvos = 1500 * (nivel + 1)
+      when (nivel >= 4) $
+        Left "Todas as rotas de fuga já estão abertas."
+      pure $ comSom "influencia" $
+        registrar ("A Resistência abre " <> rotaDeFuga nivel <> ": " <> tshow salvos <> " refugiados chegam em segurança.")
+          (avancarEspacial lado st) { gsRefugiados = gsRefugiados st + salvos }
+  | otherwise = do
+      let nivel = nivelEspacial lado st
+      when (nivel >= 4) $
+        Left "Sua corrida espacial já está completa."
+      pure $ comSom "foguete" $
+        registrar (ladoCapital lado <> " " <> marcoEspacial nivel <> "!") (avancarEspacial lado st)
+
+-- | As rotas de fuga da Resistência, na ordem em que são abertas.
+rotaDeFuga :: Int -> Text
+rotaDeFuga nivel = case nivel of
+  0 -> "uma rota pelos Pireneus até Lisboa"
+  1 -> "uma rota de barco até a Suécia"
+  2 -> "uma rota pelo Mediterrâneo"
+  _ -> "uma rede de esconderijos em toda a Europa"
 
 marcoEspacial :: Int -> Text
 marcoEspacial nivel = case nivel of
@@ -236,7 +310,11 @@ alvo :: Char -> GameState -> Either Text Pais
 alvo c st = case Map.lookup c (gsPaises st) of
   Nothing -> Left "Esse país não existe."
   Just p
+    | isJust (paisNucleo p) && gsModo st == Resistencia ->
+        Left "O coração do Reich é vigiado demais. A Resistência atua nos países ocupados."
     | isJust (paisNucleo p) -> Left "Não é possível agir dentro de uma superpotência."
+    | gsModo st == Resistencia && paisRegiao p /= Europa ->
+        Left "A Resistência só atua na Europa."
     | otherwise             -> Right p
 
 -- ---------------------------------------------------------------------------
@@ -247,11 +325,17 @@ crisesDisponiveis :: GameState -> [Crise]
 crisesDisponiveis st =
   [ c | c <- crises
       , criseId c `notElem` gsCrisesVistas st
+      , ehDesteModo c
       , all (condicaoOk st) (criseCondicoes c) ]
+  where
+    -- crises marcadas com SoNoModo Resistencia só aparecem nesse modo;
+    -- as outras só aparecem na Guerra Fria
+    ehDesteModo c = (SoNoModo Resistencia `elem` criseCondicoes c) == (gsModo st == Resistencia)
 
 condicaoOk :: GameState -> Condicao -> Bool
 condicaoOk st cond = case cond of
   SoPara lado      -> gsJogador st == lado
+  SoNoModo modo    -> gsModo st == modo
   APartirDoTurno t -> gsTurno st >= t
   AteOTurno t      -> gsTurno st <= t
   TensaoMinima n   -> gsTensao st >= n
@@ -297,14 +381,17 @@ aplicarEfeito lado efeito st = case efeito of
   Tensao n    -> st { gsTensao = max 0 (min tensaoMaxima (gsTensao st + n)) }
   Orcamento n -> st { gsOrcamento = Map.adjust (\v -> max 0 (v + n)) lado (gsOrcamento st) }
   Espacial    -> avancarEspacial lado st
+  Refugiados n -> st { gsRefugiados = gsRefugiados st + n }
 
 -- ---------------------------------------------------------------------------
 -- Inteligência artificial do lado oposto
 
 -- | A IA gasta seu orçamento em até 8 ações, sem nunca arriscar uma guerra nuclear.
 jogarIA :: GameState -> GameState
-jogarIA st0 = go (8 :: Int) st0
+jogarIA st0 = go limite st0
   where
+    limite :: Int
+    limite = if gsModo st0 == Resistencia then 3 else 8
     lado = adversario (gsJogador st0)
     go 0 s = s
     go n s
@@ -323,9 +410,10 @@ escolherAcaoIA lado st
   | otherwise                   = Nothing
   where
     dinheiro     = orcamento lado st
-    podeEspacial = nivelEspacial lado st < 4 && dinheiro >= 14
+    podeEspacial = gsModo st == GuerraFria && nivelEspacial lado st < 4 && dinheiro >= 14
     disputaveis  =
-      [ p | p <- Map.elems (gsPaises st), isNothing (paisNucleo p), controlador p /= Just lado ]
+      [ p | p <- Map.elems (gsPaises st), isNothing (paisNucleo p), controlador p /= Just lado
+          , gsModo st == GuerraFria || paisRegiao p == Europa ]
     -- golpes só em países estratégicos instáveis, e só se a tensão permitir
     alvosGolpe
       | dinheiro < 4 = []
@@ -386,11 +474,16 @@ proximoTurno st = registrar "Novo trimestre: orçamentos recebidos." st'
       }
 
 verificarFim :: GameState -> GameState
-verificarFim st
-  | pontos jogador st >= pontosVitoria = terminar (Vitoria jogador) st
-  | pontos ia st >= pontosVitoria      = terminar (Vitoria ia) st
-  | gsTurno st > turnoFinal            = terminar porPontos st
-  | otherwise                          = st
+verificarFim st = case gsModo st of
+  Resistencia
+    | libertados st >= metaLibertacao -> terminar (Vitoria EUA) st
+    | gsTurno st > turnoFinal         -> terminar (Vitoria Reich) st
+    | otherwise                       -> st
+  GuerraFria
+    | pontos jogador st >= pontosVitoria -> terminar (Vitoria jogador) st
+    | pontos ia st >= pontosVitoria      -> terminar (Vitoria ia) st
+    | gsTurno st > turnoFinal            -> terminar porPontos st
+    | otherwise                          -> st
   where
     jogador = gsJogador st
     ia      = adversario jogador
@@ -400,16 +493,23 @@ verificarFim st
       EQ -> Empate
 
 terminar :: Fim -> GameState -> GameState
-terminar f st = comSom som (registrar (mensagemFim f) st { gsFim = Just f, gsCenaFinal = True })
+terminar f st = comSom som (registrar (mensagemFim st f) st { gsFim = Just f, gsCenaFinal = True })
   where
     som = case f of
-      GuerraNuclear _ -> "nuclear"
-      _               -> "fim"
+      GuerraNuclear _
+        | gsModo st == Resistencia -> "alarme"
+        | otherwise                -> "nuclear"
+      _ -> "fim"
 
-mensagemFim :: Fim -> Text
-mensagemFim (Vitoria lado)       = ladoCapital lado <> " vence a Guerra Fria!"
-mensagemFim Empate               = "A Guerra Fria termina num impasse."
-mensagemFim (GuerraNuclear lado) = "GUERRA NUCLEAR. " <> ladoCapital lado <> " levou o mundo ao abismo."
+mensagemFim :: GameState -> Fim -> Text
+mensagemFim st f = case (gsModo st, f) of
+  (Resistencia, Vitoria EUA)     -> "A Europa se levanta: a Resistência liberta o continente!"
+  (Resistencia, Vitoria Reich)   -> "A ocupação continua. A luta seguirá na clandestinidade."
+  (Resistencia, Empate)          -> "Nem libertação, nem derrota: a luta continua."
+  (Resistencia, GuerraNuclear _) -> "A Gestapo descobre a rede. A Resistência é desmantelada."
+  (GuerraFria, Vitoria lado)       -> ladoCapital lado <> " vence a Guerra Fria!"
+  (GuerraFria, Empate)             -> "A Guerra Fria termina num impasse."
+  (GuerraFria, GuerraNuclear lado) -> "GUERRA NUCLEAR. " <> ladoCapital lado <> " levou o mundo ao abismo."
 
 -- ---------------------------------------------------------------------------
 -- Auxiliares

@@ -71,6 +71,7 @@ turnoFinal = 20
 initialState :: GameState
 initialState = GameState
   { gsTurno      = 1
+  , gsModo       = GuerraFria
   , gsJogador    = EUA
   , gsIniciado   = False
   , gsPaises     = Map.fromList [ (paisCodigo p, p) | p <- paisesIniciais ]
@@ -82,6 +83,7 @@ initialState = GameState
   , gsLog        = []
   , gsComandante = ""
   , gsPartidaId  = Nothing
+  , gsRefugiados = 0
   , gsCrise        = Nothing
   , gsCrisesVistas = []
   , gsJornal       = False
@@ -90,4 +92,5 @@ initialState = GameState
   , gsSons         = []
   , gsDado         = Nothing
   , gsCenaFinal    = False
+  , gsEnigma       = Nothing
   }

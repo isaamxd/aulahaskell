@@ -11,7 +11,7 @@ com os contornos verdadeiros dos países.
 
 ## Como se joga
 
-- Escolha um lado; o computador joga com o outro.
+- Escolha um modo: **Estados Unidos** (Guerra Fria) ou **Resistência Europeia**. O computador joga com o Reich.
 - Cada turno é um **trimestre**, de janeiro de 1962 a outubro de 1966.
 - Gaste o orçamento em ações sobre países:
 
@@ -31,6 +31,24 @@ com os contornos verdadeiros dos países.
   (25 crises, algumas exclusivas de cada lado, como os mísseis em Cuba).
 - Vence quem chegar a 36 pontos, ou quem tiver mais pontos no fim de 1966.
 - O resultado vai automaticamente para o **histórico** (banco de dados).
+
+## Modo Resistência
+
+Em vez de comandar uma superpotência, você lidera a **Resistência Europeia**
+dentro da Europa ocupada. O mapa abre com zoom na Europa e as ações mudam:
+
+| Ação | Custo | Efeito | Risco |
+|---|---|---|---|
+| 📻 Rádio clandestino | 1 + estabilidade | +15 a favor da Resistência | 0 |
+| 💥 Sabotagem | 4 | dado > estabilidade: +40 e a ocupação fica mais instável | +1 (+2 em país estratégico) |
+| ✊ Levante | 6 | só em países em disputa; se vencer, o país é libertado | +2 |
+| 🚪 Rota de fuga | 6 | salva refugiados e dá +1 recurso por trimestre (4 rotas) | 0 |
+
+- A Resistência só atua nos países europeus ocupados (não no coração do Reich).
+- **Risco de descoberta** substitui a tensão nuclear: se chegar a 5, a Gestapo
+  descobre a rede e você perde.
+- Objetivo: **libertar 6 países europeus** até outubro de 1966.
+- Crises próprias no *Boletim Clandestino* (10 crises) e finais próprios.
 
 ### Apresentação
 
@@ -70,13 +88,16 @@ app/Game/Types.hs     tipos do jogo (lados, países, ações, estado)
 app/Game/Map.hs       os 42 países e regiões de 1962 e o estado inicial
 app/Game/Geografia.hs contornos do mapa (gerado a partir do Natural Earth)
 app/Game/Rules.hs     regras, dado pseudoaleatório puro, crises e IA (funções puras)
-app/Game/Crises.hs    as 25 crises do jornal (só dados: condições e efeitos)
+app/Game/Enigma.hs    minijogo da Enigma: cifra com 3 rotores (funções puras)
+app/Game/Crises.hs    as 35 crises do jornal (só dados: condições e efeitos)
 app/Web/Cenas.hs      roteiro das cutscenes
-app/Web/Views.hs      HTML do jogo (Lucid) e mapa SVG
+app/Web/Bandeiras.hs  bandeiras dos países (mudam quando o país troca de lado)
+app/Web/Views.hs      HTML do jogo (Lucid) e mapa SVG no estilo Hearts of Iron IV
 app/Web/Server.hs     junta tudo num servidor Servant (inclui o "hello" da aula)
 static/historico.html front-end em JavaScript puro (fetch) consumindo a API
 static/efeitos.js     sons, dado e cutscenes (lê os sinais que o Haskell coloca no HTML)
-static/mapa.js        zoom e arrastar no mapa
+static/mapa.js        zoom, arrastar, nomes no mapa, dica e janela do país
+static/style.css      visual de dossiê escuro (cores no topo do arquivo)
 migrations/           SQL de criação da tabela
 scripts/iniciar.sh    liga o banco e roda o jogo
 test/Spec.hs          testes (Hspec + QuickCheck)
@@ -147,3 +168,9 @@ curl -v -X DELETE localhost:8080/api/partidas/1
 - [x] API REST com PostgreSQL e histórico de campanhas
 - [x] Crises com escolhas (jornal do trimestre)
 - [x] Cutscenes, sons e animações
+- [x] Modo Resistência (libertar a Europa ocupada)
+
+## Créditos
+
+- Trilha sonora: "Legionnaire" by Scott Buckley – released under CC-BY 4.0. www.scottbuckley.com.au
+- Mapa: Natural Earth (domínio público).

@@ -14,6 +14,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Database.PostgreSQL.Simple (Connection)
+import Game.Enigma (desistirEnigma, interceptar, tentarChave)
 import Game.Map (initialState)
 import Game.Rules
 import Game.Types
@@ -41,7 +42,7 @@ instance MimeRender HTML (Html ()) where
 type JogoAPI =
        Get '[HTML] (Html ())                                                    -- GET  /
   :<|> "pais"        :> Capture "codigo" String :> Get  '[HTML] (Html ())         -- GET  /pais/B
-  :<|> "novo"        :> Capture "lado" String   :> Post '[HTML] (Html ())         -- POST /novo/eua
+  :<|> "novo"        :> Capture "modo" String   :> Post '[HTML] (Html ())         -- POST /novo/eua
   :<|> "influenciar" :> Capture "codigo" String :> Post '[HTML] (Html ())         -- POST /influenciar/B
   :<|> "golpe"       :> Capture "codigo" String :> Post '[HTML] (Html ())         -- POST /golpe/B
   :<|> "guerra"      :> Capture "codigo" String :> Post '[HTML] (Html ())         -- POST /guerra/B
@@ -50,6 +51,8 @@ type JogoAPI =
   :<|> "crise"       :> Capture "opcao" String  :> Post '[HTML] (Html ())         -- POST /crise/a
   :<|> "jornal"      :> "fechar" :> Post '[HTML] (Html ())                       -- POST /jornal/fechar
   :<|> "reiniciar"   :> Post '[HTML] (Html ())                                   -- POST /reiniciar
+  :<|> "enigma"      :> "desistir" :> Post '[HTML] (Html ())                     -- POST /enigma/desistir
+  :<|> "enigma"      :> Capture "chave" String  :> Post '[HTML] (Html ())         -- POST /enigma/KDR
   :<|> "salvar"      :> ReqBody '[FormUrlEncoded] FormSalvar :> Post '[HTML] (Html ())
 
 -- | A API completa. A primeira rota é o exemplo da aula ("hello"), mantido.
@@ -85,6 +88,8 @@ servidorJogo conn ref =
   :<|> crise
   :<|> fechar
   :<|> reiniciar
+  :<|> executar Nothing desistirEnigma
+  :<|> (\chave -> executar Nothing (tentarChave (T.pack chave)))
   :<|> salvar
   where
     inicio :: Handler (Html ())
@@ -97,13 +102,13 @@ servidorJogo conn ref =
       responder (gameView st (Just c) Nothing)
 
     novo :: String -> Handler (Html ())
-    novo ladoTxt = do
-      lado <- case ladoTxt of
-        "eua"   -> pure EUA
-        "reich" -> pure Reich
-        _       -> throwError err404
+    novo modoTxt = do
+      modo <- case modoTxt of
+        "eua"         -> pure GuerraFria
+        "resistencia" -> pure Resistencia
+        _             -> throwError err404
       semente <- liftIO (floor <$> getPOSIXTime)
-      st <- atualizar (\s -> iniciarPartida lado semente (gsComandante s))
+      st <- atualizar (\s -> iniciarPartida modo semente (gsComandante s))
       responder (gameView st Nothing Nothing)
 
     acaoEmPais :: (Char -> Acao) -> String -> Handler (Html ())
@@ -112,7 +117,10 @@ servidorJogo conn ref =
       executar (Just c) (aplicarAcaoDoJogador (construtor c))
 
     turno :: Handler (Html ())
-    turno = executar Nothing (Right . encerrarTurno)
+    -- Fim do trimestre; se o trimestre mudou, pode chegar uma mensagem cifrada.
+    turno = executar Nothing $ \s ->
+      let s' = encerrarTurno s
+      in Right (if gsTurno s' /= gsTurno s then interceptar s' else s')
 
     crise :: String -> Handler (Html ())
     crise opcao = case opcao of
@@ -212,7 +220,7 @@ partidaDoJogo :: GameState -> Partida
 partidaDoJogo st = Partida
   { idPartida  = 0 -- ignorado: o banco gera o ID
   , comandante = T.unpack (if T.null (gsComandante st) then "Anônimo" else gsComandante st)
-  , nacao      = T.unpack (ladoNome jogador)
+  , nacao      = T.unpack (nomeDoLado st jogador)
   , turnos     = gsTurno st
   , paises     = length (paisesControlados jogador st)
   , situacao   = case gsFim st of

@@ -20,6 +20,7 @@ import Game.Types
 -- | Quando a crise pode aparecer.
 data Condicao
   = SoPara Lado          -- ^ só pra quem joga com este lado
+  | SoNoModo Modo        -- ^ crises com SoNoModo Resistencia só aparecem nesse modo
   | APartirDoTurno Int
   | AteOTurno Int
   | NaoEhDoJogador Char  -- ^ o país ainda não está sob controle do jogador
@@ -32,7 +33,8 @@ data Efeito
   | Tensao Int
   | Orcamento Int
   | Estabilidade Char Int
-  | Espacial               -- ^ avança um nível na corrida espacial
+  | Espacial               -- ^ avança um nível na corrida espacial (ou rota de fuga)
+  | Refugiados Int         -- ^ pessoas salvas (modo Resistência)
   deriving (Eq, Show)
 
 data Opcao = Opcao
@@ -260,4 +262,86 @@ crises =
          "Os grãos chegam e a revolta perde força.")
       (Opcao "Manter as requisições" [Orcamento 3, Influencia 'K' (-20), Estabilidade 'K' (-1)]
          "Os celeiros do Reich ficam cheios; a Ucrânia, revoltada.")
+
+  -- ------------------------------------------------------------------------
+  -- Modo Resistência (os efeitos são a favor da Resistência)
+  , Crise 301 "Londres pede informações"
+      "Os aliados querem saber onde ficam as fábricas de armas do Reich na França."
+      [SoNoModo Resistencia, NaoEhDoJogador 'F']
+      (Opcao "Mandar agentes fotografar as fábricas" [Influencia 'F' 15, Tensao 1]
+         "As fotos chegam a Londres, e os bombardeiros acertam o alvo.")
+      (Opcao "Recusar: é arriscado demais" [Tensao (-1)]
+         "A rede fica em silêncio por um tempo.")
+
+  , Crise 302 "Um mensageiro foi capturado"
+      "A Gestapo prendeu um mensageiro em Lyon. Ele conhece nomes e endereços da rede."
+      [SoNoModo Resistencia]
+      (Opcao "Mudar todos os esconderijos" [Orcamento (-4), Tensao (-1)]
+         "A rede se muda a tempo; a Gestapo encontra casas vazias.")
+      (Opcao "Tentar resgatá-lo da prisão" [Tensao 2, Influencia 'F' 10]
+         "O resgate dá certo, e Paris inteira comenta a fuga.")
+
+  , Crise 303 "Paraquedas sobre a Noruega"
+      "Aviões aliados podem lançar armas para a resistência norueguesa, se alguém marcar a zona de pouso."
+      [SoNoModo Resistencia, NaoEhDoJogador 'n']
+      (Opcao "Marcar a zona com fogueiras" [Influencia 'n' 20, Tensao 1]
+         "Os contêineres caem no lugar certo, cheios de armas e rádios.")
+      (Opcao "Adiar o lançamento" [Orcamento 2]
+         "As armas ficam guardadas em Londres por enquanto.")
+
+  , Crise 304 "Greve em Turim"
+      "Operários de Turim cruzam os braços contra a ocupação e pedem apoio."
+      [SoNoModo Resistencia, NaoEhDoJogador 'L']
+      (Opcao "Sustentar a greve com dinheiro" [Orcamento (-3), Influencia 'L' 20]
+         "A greve se espalha por toda a Itália do norte.")
+      (Opcao "Esperar um momento melhor" [Estabilidade 'L' 1]
+         "A greve perde força, e as fábricas voltam a produzir para o Reich.")
+
+  , Crise 305 "Partisans nas montanhas dos Bálcãs"
+      "Grupos de partisans controlam vales inteiros e pedem armas."
+      [SoNoModo Resistencia, NaoEhDoJogador 'x']
+      (Opcao "Enviar armas" [Influencia 'x' 25, Tensao 1]
+         "Com armas novas, os partisans libertam várias cidades.")
+      (Opcao "Enviar só mantimentos" [Orcamento (-2), Influencia 'x' 10]
+         "Os mantimentos ajudam os vilarejos a resistir ao inverno.")
+
+  , Crise 306 "Famílias na fronteira suíça"
+      "Centenas de famílias perseguidas tentam cruzar a fronteira com a Suíça e precisam de documentos falsos."
+      [SoNoModo Resistencia]
+      (Opcao "Falsificar documentos para todos" [Orcamento (-3), Tensao 1, Refugiados 800]
+         "Todas as famílias cruzam a fronteira em segurança.")
+      (Opcao "Levar primeiro as crianças" [Orcamento (-1), Refugiados 300]
+         "As crianças chegam à Suíça; os adultos esperam a próxima chance.")
+
+  , Crise 307 "Madri hesita"
+      "O governo espanhol pensa em se afastar de Berlim, se receber garantias dos aliados."
+      [SoNoModo Resistencia, NaoEhDoJogador 'E']
+      (Opcao "Prometer apoio aliado" [Orcamento (-4), Influencia 'E' 20]
+         "Madri esfria as relações com Berlim.")
+      (Opcao "Não confiar em Madri" [Influencia 'E' (-5)]
+         "A Espanha continua alinhada ao Reich.")
+
+  , Crise 308 "Partisans na Ucrânia"
+      "Partisans ucranianos querem coordenar com vocês um grande ataque às linhas de trem."
+      [SoNoModo Resistencia, NaoEhDoJogador 'K']
+      (Opcao "Coordenar o ataque" [Influencia 'K' 25, Tensao 2]
+         "Dezenas de trens param ao mesmo tempo em toda a Ucrânia.")
+      (Opcao "Pedir que esperem" [Influencia 'K' 5]
+         "Os partisans aguardam, mas continuam em contato.")
+
+  , Crise 309 "Uma máquina Enigma capturada!"
+      "Marinheiros aliados capturaram uma máquina de cifrar alemã num submarino afundado."
+      [SoNoModo Resistencia]
+      (Opcao "Mandar a máquina para Londres" [Orcamento 3, Tensao (-1)]
+         "Os matemáticos de Londres começam a ler as mensagens do Reich.")
+      (Opcao "Usar a máquina aqui mesmo" [Influencia 'F' 10, Tensao 1]
+         "A rede intercepta ordens da Gestapo e salva vários agentes.")
+
+  , Crise 310 "A Suécia neutra"
+      "Estocolmo pode abrigar agentes da Resistência, mas teme a reação de Berlim."
+      [SoNoModo Resistencia, NaoEhDoJogador 'S']
+      (Opcao "Pedir abrigo para a rede" [Influencia 'S' 20, Tensao 1]
+         "A Suécia vira o refúgio secreto da Resistência no norte.")
+      (Opcao "Respeitar a neutralidade sueca" [Tensao (-1), Refugiados 400]
+         "A Suécia continua neutra, mas recebe refugiados em silêncio.")
   ]

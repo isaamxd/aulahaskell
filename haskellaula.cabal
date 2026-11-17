@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               haskellaula
-version:            0.1.0.0
+version:            0.3.0.0
 synopsis:           Guerra Fria 1962: jogo de estratégia por turnos em Haskell + Servant
 maintainer:         isabellamasellialves@gmail.com
 build-type:         Simple
@@ -31,6 +31,8 @@ executable haskellaula
                       Game.Map
                       Game.Crises
                       Game.Rules
+                      Game.Enigma
+                      Web.Bandeiras
                       Web.Cenas
                       Web.Views
                       Web.Server
@@ -52,4 +54,5 @@ test-suite testes
                       Game.Map
                       Game.Crises
                       Game.Rules
+                      Game.Enigma
     build-depends:    base, containers, text, hspec, QuickCheck

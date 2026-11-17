@@ -64,7 +64,7 @@ const Sons = (() => {
 
   const efeitos = {
     clique:     () => tom(900, 0.04, 'square', 0.02),
-    tecla:      () => ruido(0.03, 0.05, 3500),
+    tecla:      () => { ruido(0.018, 0.07, 4200); tom(1800, 0.012, 'square', 0.012); },
     influencia: () => { tom(520, 0.08, 'triangle', 0.05); tom(780, 0.12, 'triangle', 0.05, 0.08); },
     sucesso:    () => [523, 659, 784].forEach((f, i) => tom(f, 0.18, 'triangle', 0.06, 0.65 + i * 0.1)),
     fracasso:   () => { tom(300, 0.25, 'sawtooth', 0.04, 0.65); tom(200, 0.4, 'sawtooth', 0.04, 0.85); },
@@ -98,7 +98,7 @@ const Sons = (() => {
 // ---------------------------------------------------------------------------
 // Cutscenes: cenas em sequência, com texto datilografado
 
-const CORES = { E: '#3d6a9e', R: '#8c2f2f' };
+const CORES = { E: '#3f7fd8', R: '#c0493c' };
 let cutsceneAtual = null;
 
 function pintarMapaDaCena(cutscene, cena) {
@@ -162,7 +162,7 @@ function tocarCutscene(el) {
       if (!ativa || cenas[i] !== cena) return;
       if (k < completo.length) {
         texto.textContent += completo[k++];
-        if (k % 3 === 0 && completo[k - 1] !== ' ') Sons.tocar('tecla');
+        if (/\S/.test(completo[k - 1])) Sons.tocar('tecla');   // um toque por letra (espaço não faz som)
         timer = setTimeout(digitar, 40);
       } else {
         timer = setTimeout(proxima, cena.classList.contains('titulo') ? 2200 : 2800);
@@ -239,8 +239,16 @@ document.addEventListener('click', (e) => {
     if (final) tocarCutscene(final);
   } else if (e.target.closest('#botao-som')) {
     const ligado = Sons.alternar();
-    e.target.closest('#botao-som').textContent = ligado ? '🔊' : '🔇';
-    if (ligado) Sons.tocar('clique');
+    e.target.closest('#botao-som').textContent = ligado ? 'Som: ligado' : 'Som: mudo';
+    if (ligado) { Sons.tocar('clique'); Trilha.tocar(); } else Trilha.parar();
+  } else if (e.target.closest('[data-abrir]')) {
+    // menu "Como jogar": abre a janela correspondente
+    const janela = document.getElementById('m-' + e.target.closest('[data-abrir]').dataset.abrir);
+    if (janela) janela.classList.add('aberto');
+    Sons.tocar('clique');
+  } else if (e.target.closest('.modal') && (e.target.classList.contains('modal') || e.target.closest('.fechar-m'))) {
+    // fechar a janela: no "×" ou clicando fora dela
+    e.target.closest('.modal').classList.remove('aberto');
   } else if (e.target.closest('button, .pais')) {
     Sons.tocar('clique');
   }
@@ -248,7 +256,62 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('DOMContentLoaded', () => {
   const botao = document.getElementById('botao-som');
-  if (botao) botao.textContent = Sons.ligado ? '🔊' : '🔇';
+  if (botao) botao.textContent = Sons.ligado ? 'Som: ligado' : 'Som: mudo';
   processarSinais();
 });
 document.addEventListener('htmx:afterSwap', processarSinais);
+
+
+// ---------------------------------------------------------------------------
+// Trilha sonora: "Legionnaire", de Scott Buckley (CC BY 4.0), em loop e baixinho.
+// Os navegadores só deixam tocar som depois do primeiro clique na página.
+const Trilha = (() => {
+  const audio = new Audio('/legionnaire.m4a');
+  audio.loop = true;
+  audio.volume = 0.12;
+  return {
+    tocar() { if (Sons.ligado) audio.play().catch(() => {}); },
+    parar() { audio.pause(); },
+  };
+})();
+document.addEventListener('pointerdown', () => Trilha.tocar(), { once: true });
+
+// ---------------------------------------------------------------------------
+// Minijogo da Enigma: girar os rotores e ver a mensagem mudar na hora.
+// A conferência de verdade é feita em Haskell (POST /enigma/KDR).
+const Enigma = {
+  rotores: [0, 0, 0],
+  decifrar(texto) {
+    let i = 0;
+    return texto.replace(/[A-Z]/g, c => {
+      const k = this.rotores[i++ % 3];
+      return String.fromCharCode(65 + ((c.charCodeAt(0) - 65 - k + 26) % 26));
+    });
+  },
+  chave() { return this.rotores.map(k => String.fromCharCode(65 + k)).join(''); },
+  atualizar() {
+    const cifrado = document.getElementById('enigma-cifrado');
+    const claro = document.getElementById('enigma-claro');
+    if (!cifrado || !claro) return;
+    document.querySelectorAll('#m-enigma .letra').forEach(l => {
+      l.textContent = String.fromCharCode(65 + this.rotores[Number(l.dataset.rotor)]);
+    });
+    claro.textContent = this.decifrar(cifrado.textContent);
+    claro.classList.toggle('certo', /BERLIM$/.test(claro.textContent.trim()));
+  },
+};
+document.addEventListener('click', (e) => {
+  const girar = e.target.closest('#m-enigma .girar');
+  if (girar) {
+    const i = Number(girar.dataset.rotor);
+    Enigma.rotores[i] = (Enigma.rotores[i] + Number(girar.dataset.passo) + 26) % 26;
+    Sons.tocar('tecla');
+    Enigma.atualizar();
+    return;
+  }
+  if (e.target.closest('#enigma-enviar') && window.htmx) {
+    htmx.ajax('POST', '/enigma/' + Enigma.chave(), { target: '#jogo' });
+  }
+});
+document.addEventListener('DOMContentLoaded', () => Enigma.atualizar());
+document.addEventListener('htmx:afterSwap', () => Enigma.atualizar());
